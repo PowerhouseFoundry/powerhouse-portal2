@@ -1,0 +1,195 @@
+/* ------------------------------
+   Global
+------------------------------ */
+body {
+  font-family: system-ui, sans-serif;
+  margin: 0;
+  background: #f9fafb;
+  color: #111827;
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+h1, h2, h3 {
+  margin: 0 0 .5rem 0;
+  font-weight: 600;
+}
+
+/* ------------------------------
+   Header
+------------------------------ */
+.site-header {
+  background: #6d28d9; /* purple */
+  color: #fff;
+  padding: .75rem 1rem;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.site-header .brand {
+  display: flex;
+  align-items: center;
+  font-weight: 700;
+  font-size: 1.25rem;
+  text-decoration: none;
+  color: #fff;
+}
+
+.site-header nav a {
+  margin-left: 1rem;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 500;
+  padding: .4rem .75rem;
+  border-radius: .375rem;
+  transition: background .2s;
+}
+
+.site-header nav a:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+/* ------------------------------
+   Buttons
+------------------------------ */
+button.btn,
+.btn {
+  background-color: #6d28d9; /* purple base */
+  color: #fff;
+  border: none;
+  padding: .6rem 1rem;
+  border-radius: .5rem;
+  cursor: pointer;
+  transition: background-color .2s ease, transform .1s ease;
+  display: inline-block;
+  text-decoration: none;
+}
+
+button.btn:hover,
+.btn:hover {
+  background-color: #10b981; /* highlight green */
+  transform: translateY(-1px);
+}
+
+.btn.outline {
+  background: #fff;
+  color: #6d28d9;
+  border: 2px solid #6d28d9;
+}
+
+.btn.outline:hover {
+  background: #10b981;
+  color: #fff;
+  border-color: #10b981;
+}
+
+/* ------------------------------
+   Cards
+------------------------------ */
+.card {
+  background: #fff;
+  padding: 1rem;
+  margin-top: 1rem;
+  border-radius: .5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+
+  /* Gradient border */
+  border: 2px solid transparent;
+  border-image: linear-gradient(90deg, #6d28d9, #10b981) 1;
+}
+
+/* ------------------------------
+   Forms
+------------------------------ */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+textarea,
+select {
+  width: 100%;
+  padding: .5rem .6rem;
+  margin-top: .25rem;
+  border-radius: .5rem;
+  border: 2px solid transparent;
+  border-image: linear-gradient(90deg, #6d28d9, #10b981) 1;
+  background: #fff;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+
+textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+/* ------------------------------
+   Modules (training)
+------------------------------ */
+.modules {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+  margin-top: .25rem;
+}
+
+.module-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .6rem .8rem;
+  border: 1px solid #e5e7eb;
+  border-radius: .5rem;
+  background: #fff;
+}
+
+.module-row:hover {
+  background: #f9fafb;
+}
+
+.module-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #10b981; /* green tick */
+}
+
+/* ------------------------------
+   Utility
+------------------------------ */
+.muted {
+  color: #6b7280;
+  font-size: .9rem;
+}
+
+.grid {
+  display: grid;
+  gap: .5rem;
+}
+
+.grid.two { grid-template-columns: repeat(2, 1fr); }
+.grid.three { grid-template-columns: repeat(3, 1fr); }
+.grid.four { grid-template-columns: repeat(4, 1fr); }
+
+/* ------------------------------
+   Footer
+------------------------------ */
+.footer {
+  text-align: center;
+  padding: 1rem;
+  margin-top: 2rem;
+  color: #6b7280;
+  font-size: .85rem;
+}
+/* Self-assessment reflections: keep text boxes neatly inside card */
+.card textarea {
+  width: 95%;              /* slightly narrower than full width */
+  display: block;
+  margin: 0 auto;          /* center it horizontally */
+  box-sizing: border-box;  /* include padding/border in width */
+}

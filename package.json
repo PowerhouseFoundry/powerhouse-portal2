@@ -1,0 +1,19 @@
+{
+  "name": "powerhouse-portal",
+  "version": "3.0.0",
+  "description": "Powerhouse Employability Portal (students + staff, job board, admin)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^9.6.0",
+    "docx": "^8.5.0",
+    "ejs": "^3.1.10",
+    "express": "^4.21.2",
+    "express-session": "^1.18.2",
+    "method-override": "^3.0.0",
+    "multer": "^2.0.2"
+  }
+}
