@@ -12,7 +12,13 @@ const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const db = new Database(path.join(__dirname, 'data.db'));
+// Use /data/data.db if running on Render with a disk
+const dbPath = process.env.DATA_DIR
+  ? path.join(process.env.DATA_DIR, 'data.db')
+  : path.join(__dirname, 'data.db');
+
+const db = new Database(dbPath);
+
 
 // ---------- View engine ----------
 app.engine('js', ejs.__express);
