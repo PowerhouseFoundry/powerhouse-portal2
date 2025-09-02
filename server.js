@@ -278,6 +278,14 @@ if (!colExists('self_assessments','target')) {
 }
 if (!colExists('job_applications','cv_path')) {
   db.exec(`ALTER TABLE job_applications ADD COLUMN cv_path TEXT DEFAULT ''`);
+
+  // Add created_at to job_adverts if missing (used by staff jobs page)
+if (!colExists('job_adverts', 'created_at')) {
+  db.exec(`ALTER TABLE job_adverts ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`);
+  // Backfill existing rows so SELECT/ORDER BY works
+  db.exec(`UPDATE job_adverts SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''`);
+}
+
 }
 /* Area columns for grouping resources (safe if already exist) */
 if (!colExists('training_resources','area')) {
@@ -858,10 +866,10 @@ app.post('/staff/admin/student/:id/delete', requireStaff, (req,res)=>{
 // Staff: Jobs (internal) — now shows job_adverts so students see the same list
 app.get('/staff/jobs', requireStaff, (req,res)=>{
   const ads = db.prepare(`
-    SELECT id, title, employer, location, description, closing_date, pay_per_hour, created_at
-    FROM job_adverts
-    ORDER BY created_at DESC, id DESC
-  `).all();
+  SELECT id, title, employer, location, description, closing_date, pay_per_hour, created_at
+  FROM job_adverts
+  ORDER BY COALESCE(created_at, '1970-01-01') DESC, id DESC
+`).all();
   res.render('staff/jobs', { ads, active: 'jobs', staff: req.session.staff });
 });
 
