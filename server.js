@@ -29,6 +29,14 @@ const db = new Database(dbPath);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// ✅ Sessions MUST be before any route that uses req.session
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'change-me-in-production',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000*60*60*8 }
+}));
+
 // Create the classes table if it doesn’t exist
 db.prepare(`
   CREATE TABLE IF NOT EXISTS classes (
@@ -325,12 +333,7 @@ if (db.prepare('SELECT COUNT(*) AS c FROM training_catalog').get().c === 0) {
 // ---------- App middleware ----------
 app.use(methodOverride('_method'));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'change-me-in-production',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000*60*60*8 }
-}));
+
 
 // Ensure uploads dir exists
 const uploadDir = path.join(__dirname, 'public', 'uploads');
