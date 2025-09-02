@@ -12,12 +12,66 @@ const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+app.set('trust proxy', 1);
+app.get('/healthz', (_req, res) => res.status(200).send('ok'));
+
 // Use /data/data.db if running on Render with a disk
 const dbPath = process.env.DATA_DIR
   ? path.join(process.env.DATA_DIR, 'data.db')
   : path.join(__dirname, 'data.db');
 
 const db = new Database(dbPath);
+// === CLASSES FEATURE START ===
+
+
+// Make sure we can handle form submissions
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Create the classes table if it doesn’t exist
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS classes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+  )
+`).run();
+
+
+// Always have at least one class
+db.prepare(`INSERT OR IGNORE INTO classes (name) VALUES (?)`)
+  .run('Powerhouse Group A');
+
+// Share classes with every page (for dropdowns)
+app.use((req, res, next) => {
+  try {
+    const classes = db.prepare('SELECT id, name FROM classes ORDER BY name').all();
+    res.locals.classes = classes;
+  } catch {
+    res.locals.classes = [];
+  }
+  next();
+});
+
+// Add a new class (from admin form)  — now matches your /staff/admin area
+app.post('/staff/admin/classes', requireStaff, (req, res) => {
+  try {
+    const raw = (req.body?.name || '').trim();
+    if (!raw) return res.status(400).send('Class name is required');
+
+    db.prepare('INSERT INTO classes (name) VALUES (?)').run(raw);
+    return res.redirect('/staff/admin');
+  } catch (e) {
+    if (String(e.message).includes('UNIQUE')) {
+      return res.status(409).send('That class already exists.');
+    }
+    console.error('Create class failed:', e);
+    res.status(500).send('Internal error creating class');
+  }
+});
+
+
+// === CLASSES FEATURE END ===
 
 
 // ---------- View engine ----------

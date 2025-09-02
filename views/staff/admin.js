@@ -67,6 +67,19 @@
     <h1>Admin Tools</h1>
 
     <div class="grid">
+
+      <!-- ✅ NEW: Create Class -->
+      <div class="card">
+        <h2>Create class</h2>
+        <form method="post" action="/staff/admin/classes" autocomplete="off">
+          <label>Class name</label>
+          <input type="text" name="name" required placeholder="e.g. Powerhouse Group B">
+          <div class="vspace">
+            <button class="btn" type="submit">Create</button>
+          </div>
+        </form>
+      </div>
+
       <!-- Create Student -->
       <div class="card">
         <h2>Create student</h2>
@@ -159,6 +172,8 @@
           </tbody>
         </table>
       </div>
-
+    </div>
+  </div>
+</div>
 
 <%- include('../partials/footer.js') %>
