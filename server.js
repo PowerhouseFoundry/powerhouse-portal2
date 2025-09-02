@@ -268,40 +268,48 @@ db.exec(`
 
 // ---------- Lightweight migrations ----------
 function colExists(table, col) {
-  return !!db.prepare(`SELECT 1 FROM pragma_table_info(?) WHERE name=?`).get(table, col);
+  // PRAGMA cannot parameterize table name; use string literal here.
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all();
+  return rows.some(r => r.name === col);
 }
+
 if (!colExists('self_assessments','reflection')) {
   db.exec(`ALTER TABLE self_assessments ADD COLUMN reflection TEXT DEFAULT ''`);
 }
+
 if (!colExists('self_assessments','target')) {
   db.exec(`ALTER TABLE self_assessments ADD COLUMN target TEXT DEFAULT ''`);
 }
+
 if (!colExists('job_applications','cv_path')) {
   db.exec(`ALTER TABLE job_applications ADD COLUMN cv_path TEXT DEFAULT ''`);
+}
 
-  // Add created_at to job_adverts if missing (used by staff jobs page)
-if (!colExists('job_adverts', 'created_at')) {
+/* job_adverts columns used by the jobs page */
+if (!colExists('job_adverts','created_at')) {
   db.exec(`ALTER TABLE job_adverts ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`);
-  // Backfill existing rows so SELECT/ORDER BY works
-  db.exec(`UPDATE job_adverts SET created_at = datetime('now') WHERE created_at IS NULL OR created_at = ''`);
+  db.exec(`UPDATE job_adverts
+           SET created_at = datetime('now')
+           WHERE created_at IS NULL OR created_at = ''`);
 }
 
-}
-/* Area columns for grouping resources (safe if already exist) */
-if (!colExists('training_resources','area')) {
-  db.exec(`ALTER TABLE training_resources ADD COLUMN area TEXT DEFAULT ''`);
-}
-if (!colExists('training_module_resources','area')) {
-  db.exec(`ALTER TABLE training_module_resources ADD COLUMN area TEXT DEFAULT ''`);
-}
-/* Track module origin so module delete can clean student copies */
-if (!colExists('training_resources','module_key')) {
-  db.exec(`ALTER TABLE training_resources ADD COLUMN module_key TEXT DEFAULT ''`);
-}
 if (!colExists('job_adverts','pay_per_hour')) {
   db.exec(`ALTER TABLE job_adverts ADD COLUMN pay_per_hour REAL`);
 }
 
+/* Area columns for grouping resources (safe if already exist) */
+if (!colExists('training_resources','area')) {
+  db.exec(`ALTER TABLE training_resources ADD COLUMN area TEXT DEFAULT ''`);
+}
+
+if (!colExists('training_module_resources','area')) {
+  db.exec(`ALTER TABLE training_module_resources ADD COLUMN area TEXT DEFAULT ''`);
+}
+
+/* Track module origin so module delete can clean student copies */
+if (!colExists('training_resources','module_key')) {
+  db.exec(`ALTER TABLE training_resources ADD COLUMN module_key TEXT DEFAULT ''`);
+}
 
 // ---------- Seed demo data ----------
 if (db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0) {
