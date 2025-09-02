@@ -56,19 +56,36 @@ app.use((req, res, next) => {
 // Add a new class (from admin form)  — now matches your /staff/admin area
 app.post('/staff/admin/classes', requireStaff, (req, res) => {
   try {
-    const raw = (req.body?.name || '').trim();
-    if (!raw) return res.status(400).send('Class name is required');
+    // Log what we received so we can see it in Render logs
+    console.log('POST /staff/admin/classes body:', req.body);
 
-    db.prepare('INSERT INTO classes (name) VALUES (?)').run(raw);
+    // 1) Basic validation
+    const raw = (req.body && typeof req.body.name === 'string') ? req.body.name.trim() : '';
+    if (!raw) {
+      console.warn('Add class: missing name');
+      return res.status(400).send('Class name is required');
+    }
+
+    // 2) Normalise whitespace and length
+    const name = raw.replace(/\s+/g, ' ').slice(0, 100);
+
+    // 3) Insert
+    db.prepare('INSERT INTO classes (name) VALUES (?)').run(name);
+
+    // 4) Back to admin
     return res.redirect('/staff/admin');
   } catch (e) {
-    if (String(e.message).includes('UNIQUE')) {
+    const msg = String(e && e.message || e);
+    console.error('Create class failed:', msg);
+
+    if (msg.includes('UNIQUE')) {
       return res.status(409).send('That class already exists.');
     }
-    console.error('Create class failed:', e);
-    res.status(500).send('Internal error creating class');
+    // Surface the actual message to help you debug now.
+    return res.status(500).send('Internal error creating class: ' + msg);
   }
 });
+
 
 
 // === CLASSES FEATURE END ===
@@ -163,6 +180,19 @@ db.exec(`
     FOREIGN KEY (staff_id) REFERENCES staff_users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS cv_data (
+  user_id INTEGER PRIMARY KEY,
+  full_name TEXT DEFAULT '',
+  address TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  phone TEXT DEFAULT '',
+  personal_statement TEXT DEFAULT '',
+  skills TEXT DEFAULT '',
+  education_json TEXT DEFAULT '[]',
+  work_json TEXT DEFAULT '[]',
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
   /* Student progress flags */
   CREATE TABLE IF NOT EXISTS training_progress (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -252,6 +282,10 @@ if (!colExists('training_module_resources','area')) {
 if (!colExists('training_resources','module_key')) {
   db.exec(`ALTER TABLE training_resources ADD COLUMN module_key TEXT DEFAULT ''`);
 }
+if (!colExists('job_adverts','pay_per_hour')) {
+  db.exec(`ALTER TABLE job_adverts ADD COLUMN pay_per_hour REAL`);
+}
+
 
 // ---------- Seed demo data ----------
 if (db.prepare('SELECT COUNT(*) AS c FROM users').get().c === 0) {
@@ -289,7 +323,6 @@ if (db.prepare('SELECT COUNT(*) AS c FROM training_catalog').get().c === 0) {
 }
 
 // ---------- App middleware ----------
-app.use(express.urlencoded({ extended: true }));
 app.use(methodOverride('_method'));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(session({
@@ -414,8 +447,8 @@ app.post('/self-assessment', requireStudent, (req,res)=>{
     data[s.key] = isNaN(v) ? null : Math.min(5, Math.max(1, v));
   });
   const term = req.body.term || '';
-  theReflection = req.body.reflection || '';
-  theTarget = req.body.target || '';
+const theReflection = req.body.reflection || '';
+const theTarget = req.body.target || '';
   db.prepare('INSERT INTO self_assessments (user_id, term, skills_json, reflection, target) VALUES (?,?,?,?,?)')
     .run(req.session.user.id, term, JSON.stringify(data), theReflection, theTarget);
   res.redirect('/self-assessment');
@@ -819,24 +852,38 @@ app.post('/staff/admin/student/:id/delete', requireStaff, (req,res)=>{
 });
 
 // Staff: Jobs (internal)
+// Staff: Jobs (internal) — now shows job_adverts so students see the same list
 app.get('/staff/jobs', requireStaff, (req,res)=>{
-  const ads = db.prepare('SELECT * FROM job_ads ORDER BY created_at DESC').all();
+  const ads = db.prepare(`
+    SELECT id, title, employer, location, description, closing_date, pay_per_hour, created_at
+    FROM job_adverts
+    ORDER BY created_at DESC, id DESC
+  `).all();
   res.render('staff/jobs', { ads, active: 'jobs', staff: req.session.staff });
 });
+
 app.post('/staff/jobs/create', requireStaff, (req,res)=>{
-  const { title, description, pay_per_hour } = req.body;
+  const { title, description, employer, location, closing_date, pay_per_hour } = req.body;
   if (!title) return res.redirect('/staff/jobs');
+
   const pay = (pay_per_hour && !Number.isNaN(parseFloat(pay_per_hour))) ? parseFloat(pay_per_hour) : null;
+  const emp = (employer || '').trim();           // optional
+  const loc = (location || '').trim();           // optional
+  const close = (closing_date || '').trim();     // optional (YYYY-MM-DD)
+
   db.prepare(`
-    INSERT INTO job_ads (title, description, pay_per_hour, created_at)
-    VALUES (?, ?, ?, datetime('now'))
-  `).run(title, description || '', pay);
+    INSERT INTO job_adverts (title, employer, location, description, closing_date, pay_per_hour, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(title.trim(), emp, loc, description || '', close, pay);
+
   res.redirect('/staff/jobs');
 });
+
 app.post('/staff/jobs/:id/delete', requireStaff, (req,res)=>{
-  db.prepare('DELETE FROM job_ads WHERE id=?').run(parseInt(req.params.id,10));
+  db.prepare('DELETE FROM job_adverts WHERE id=?').run(parseInt(req.params.id,10));
   res.redirect('/staff/jobs');
 });
+
 app.post('/staff/applications/:id/status', requireStaff, (req,res)=>{
   const id = parseInt(req.params.id, 10);
   const { status } = req.body;
