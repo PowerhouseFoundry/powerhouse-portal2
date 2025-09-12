@@ -918,25 +918,21 @@ app.post('/staff/applications/:id/delete', requireStaff, (req,res)=>{
 // View a single job application (teacher side)
 app.get('/staff/applications/:id', requireStaff, (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const row = db.prepare(`
-    SELECT
-      ja.*,
-      u.full_name    AS student_name,
-      u.username     AS student_username,
-      a.title        AS advert_title,
-      a.employer     AS advert_employer
+  const appRow = db.prepare(`
+    SELECT ja.*,
+           u.full_name AS student_name,
+           a.title      AS advert_title
     FROM job_applications ja
-    LEFT JOIN users u        ON u.id = ja.user_id
-    LEFT JOIN job_adverts a  ON a.id = ja.advert_id
+    JOIN users u       ON u.id = ja.user_id
+    LEFT JOIN job_adverts a ON a.id = ja.advert_id
     WHERE ja.id = ?
   `).get(id);
 
-  if (!app) return res.status(404).render('404');
+  if (!appRow) return res.status(404).render('404');
 
-  res.render('staff/application', { app: row, active: 'jobs', staff: req.session.staff });
+  // pass active:'jobs' if you want the Jobs tab highlighted in the header
+  res.render('staff/application', { app: appRow, staff: req.session.staff, active: 'jobs' });
 });
-app.get('/staff/application/:id', requireStaff, (req,res) =>
-  res.redirect('/staff/applications/' + parseInt(req.params.id, 10)));
 
 
 /* ===== STAFF TRAINING PAGE (separate from Admin) ===== */

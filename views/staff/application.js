@@ -1,8 +1,9 @@
 <%
-  const title  = 'Job Application';
-  const active = typeof active !== 'undefined' ? active : 'jobs';
+  const title = 'Job Application';
+  // Pick up an 'active' passed from res.render, otherwise default to 'jobs'
+  const activeTab = (typeof locals !== 'undefined' && locals.active) ? locals.active : 'jobs';
 %>
-<%- include('../partials/header.js', { title, active, staff }) %>
+<%- include('../partials/header.js', { title, active: activeTab, staff }) %>
 
 <div class="wrap" style="max-width:900px;margin:0 auto;padding:0 16px">
   <h1>Job Application</h1>
