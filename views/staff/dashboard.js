@@ -20,8 +20,9 @@
     #staff-dash table { width:100%; border-collapse: collapse; }
     #staff-dash th, #staff-dash td { text-align:left; padding:8px 10px; border-bottom:1px solid #f0f0f0; }
     #staff-dash th { font-weight:600; color:#374151; }
+    #staff-dash .actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
     #staff-dash .actions form { display:inline; }
-    #staff-dash .btn { padding:8px 12px; border-radius:10px; border:1px solid #d1d5db; background:#fff; cursor:pointer; }
+    #staff-dash .btn { padding:8px 12px; border-radius:10px; border:1px solid #d1d5db; background:#fff; cursor:pointer; text-decoration:none; display:inline-block; }
     #staff-dash .btn:hover { border-color:#10b981; color:#10b981; }
   </style>
 
@@ -76,6 +77,10 @@
                   <td><%= a.status %></td>
                   <td><%= a.created_at %></td>
                   <td class="actions">
+                    <!-- NEW: View link to the application page -->
+                    <a class="btn" href="/staff/applications/<%= a.id %>">View</a>
+
+                    <!-- Update status -->
                     <form method="post" action="/staff/applications/<%= a.id %>/status">
                       <select name="status" onchange="this.form.submit()">
                         <option <%= a.status==='Submitted'?'selected':'' %>>Submitted</option>
@@ -84,6 +89,8 @@
                         <option <%= a.status==='Declined'?'selected':'' %>>Declined</option>
                       </select>
                     </form>
+
+                    <!-- Delete -->
                     <form method="post" action="/staff/applications/<%= a.id %>/delete" onsubmit="return confirm('Delete this application?')">
                       <button class="btn" type="submit">Delete</button>
                     </form>
