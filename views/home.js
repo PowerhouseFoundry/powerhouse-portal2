@@ -46,9 +46,14 @@
     background: linear-gradient(90deg, #10b981, #7c3aed); /* matches hero colours */
     padding: 18px 0;
   }
+  #home-root .intro-row {
+    display:flex; align-items:center; justify-content:space-between; gap:1rem;
+  }
+  #home-root .intro-left { min-width: 0; }
   /* Bulletproof text: left, white, not transparent, cannot be overridden by globals */
   #home-root .intro-title,
-  #home-root .intro-sub {
+  #home-root .intro-sub,
+  #home-root .status-chip {
     color: #ffffff !important;
     opacity: 1 !important;
     filter: none !important;
@@ -63,6 +68,21 @@
   #home-root .intro-sub {
     margin: 0;
     font-size: 1.1rem;
+  }
+  #home-root .intro-right { flex: 0 0 auto; }
+  #home-root .status-chip {
+    display:inline-block;
+    background: rgba(255,255,255,.18);
+    border: 1px solid rgba(255,255,255,.35);
+    padding: .5rem .75rem;
+    border-radius: 999px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  @media (max-width: 680px){
+    #home-root .intro-row { flex-direction:column; align-items:flex-start; }
+    #home-root .intro-right { width:100%; }
+    #home-root .status-chip { width:100%; text-align:center; }
   }
 
   /* ===== QUICK LINKS (unchanged) ===== */
@@ -125,11 +145,20 @@
   </div>
 </section>
 
-<!-- Intro band with left aligned white text (scoped classes so globals can’t override) -->
+<!-- Intro band with left aligned white text + CURRENT STATUS -->
 <section class="intro-band" aria-label="Welcome">
   <div class="local-container">
-    <h1 class="intro-title">Welcome, <%= user.full_name %></h1>
-    <p class="intro-sub">Track your progress, complete training, and apply for jobs.</p>
+    <div class="intro-row">
+      <div class="intro-left">
+        <h1 class="intro-title">Welcome, <%= user.full_name %></h1>
+        <p class="intro-sub">Track your progress, complete training, and apply for jobs.</p>
+      </div>
+      <div class="intro-right">
+        <span class="status-chip">
+          Current Status: <strong><%= (typeof statusText !== 'undefined' && statusText) ? statusText : 'Unemployed' %></strong>
+        </span>
+      </div>
+    </div>
   </div>
 </section>
 

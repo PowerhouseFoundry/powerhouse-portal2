@@ -403,7 +403,9 @@ app.post('/login', (req,res)=>{
 app.post('/logout', (req,res)=> req.session.destroy(()=> res.redirect('/login')));
 
 app.get('/home', requireStudent, (req,res)=>{
-  const row = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC').get(req.session.user.id);
+  // Latest self-assessment (unchanged)
+  const row = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC')
+    .get(req.session.user.id);
   let latest = {};
   if (row) { try { latest = JSON.parse(row.skills_json) } catch(e){} }
   const pathData = SKILLS.map(s => ({ ...s, score: latest[s.key] || 0 }));
@@ -417,10 +419,29 @@ app.get('/home', requireStudent, (req,res)=>{
     ORDER BY sa.created_at DESC LIMIT 1
   `).get(req.session.user.id);
 
-  res.render('home', { skills: pathData, latestReview, terms: TERMS });
+  // NEW: compute employment status from most recent ACCEPTED application (if any)
+  const accepted = db.prepare(`
+    SELECT ja.role, a.title AS advert_title
+    FROM job_applications ja
+    LEFT JOIN job_adverts a ON a.id = ja.advert_id
+    WHERE ja.user_id = ? AND ja.status = 'Accepted'
+    ORDER BY ja.created_at DESC
+    LIMIT 1
+  `).get(req.session.user.id);
+
+  const statusText = accepted
+    ? `Employed — ${accepted.role || accepted.advert_title || 'Job'}`
+    : 'Unemployed';
+
+  res.render('home', {
+    skills: pathData,
+    latestReview,
+    terms: TERMS,
+    statusText   // <-- pass to template
+  });
 });
 
-// Self-Assessment
+
 // Self-Assessment
 app.get('/self-assessment', requireStudent, (req,res)=>{
   const latest = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC LIMIT 1').get(req.session.user.id);
