@@ -1,193 +1,404 @@
-<% const title = 'Student Profile'; const active = 'staff-dashboard'; %>
+<%
+  const title  = 'Student Profile';
+  const active = 'dashboard';
+
+  // Ensure we have latest rows
+  const latestSelf  = (typeof latestSelf !== 'undefined' && latestSelf) ? latestSelf : ((selfRows && selfRows[0]) || null);
+  const latestStaff = (typeof latestStaff !== 'undefined' && latestStaff) ? latestStaff : ((staffRows && staffRows[0]) || null);
+
+  // Prep radar data
+  const labels = (skills||[]).map(s => s.name);
+  let stuScores = [];
+  let staffScores = [];
+  try {
+    const s = (latestSelf && latestSelf.skills_json) ? JSON.parse(latestSelf.skills_json) : {};
+    stuScores = (skills||[]).map(k => s[k.key] ?? null);
+  } catch(e){ stuScores = (skills||[]).map(()=>null); }
+  try {
+    const t = (latestStaff && latestStaff.skills_json) ? JSON.parse(latestStaff.skills_json) : {};
+    staffScores = (skills||[]).map(k => t[k.key] ?? null);
+  } catch(e){ staffScores = (skills||[]).map(()=>null); }
+%>
 <%- include('../partials/header.js', { title, active, staff }) %>
 
-<div class="container">
-  <h1><%= student.full_name %></h1>
+<div id="staff-student">
+  <style>
+    #staff-student .wrap { max-width: 1200px; margin: 0 auto; padding: 0 16px; }
+    #staff-student h1 { margin:.25rem 0 1rem 0; }
+    #staff-student .muted { color:#6b7280; }
+    #staff-student .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f3f4f6; font-size:.85rem; }
 
-  <!-- Quick meta -->
-  <div class="muted" style="margin-bottom:1rem">
-    Username: <strong><%= student.username %></strong>
-  </div>
+    /* Cards */
+    #staff-student .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px; }
+    #staff-student .card-tight { padding:0; overflow:hidden; }
+    #staff-student .card-section { padding:14px; }
 
-  <div class="grid two" style="gap:1rem">
-    <!-- Assess student -->
+    /* Buttons */
+    #staff-student .btn {
+      background:#6d28d9; color:#fff; border:1px solid #6d28d9;
+      border-radius:10px; padding:9px 12px; font-weight:600; cursor:pointer;
+      display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
+      transition: background .2s, border-color .2s; text-decoration:none; white-space:nowrap;
+    }
+    #staff-student .btn:hover { background:#5b21b6; border-color:#5b21b6; }
+    #staff-student .btn.outline { background:#fff; color:#6d28d9; }
+
+    /* Inputs */
+    #staff-student label { display:block; font-weight:600; margin:.25rem 0 .35rem; }
+    #staff-student select,
+    #staff-student textarea,
+    #staff-student input[type="text"],
+    #staff-student input[type="url"],
+    #staff-student input[type="file"] {
+      width:100%; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; box-sizing:border-box; display:block; font: inherit;
+    }
+    #staff-student textarea { min-height:110px; resize:vertical; }
+
+    /* Tables */
+    #staff-student table { width:100%; border-collapse: collapse; }
+    #staff-student th, #staff-student td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
+    #staff-student th { background:#f9fafb; font-weight:700; }
+
+    /* Grids */
+    #staff-student .grid-2 { display:grid; grid-template-columns: 1.05fr 1fr; gap:12px; }
+    #staff-student .grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
+    @media (max-width: 980px){ #staff-student .grid-2, #staff-student .grid-3 { grid-template-columns: 1fr; } }
+
+    /* Skill inputs row (for staff assessment form) */
+    #staff-student .skills-list { display:flex; flex-direction:column; gap:.5rem; }
+    #staff-student .skill-row { display:grid; grid-template-columns: 1fr 280px; align-items:center; gap:.75rem; }
+    #staff-student .scale-inputs { display:grid; grid-template-columns: repeat(5, 1fr); gap:.5rem; }
+    #staff-student .scale-cell { display:flex; align-items:center; justify-content:center; }
+    #staff-student .scale-cell input[type="radio"] { position:absolute; opacity:0; width:0; height:0; }
+    #staff-student .scale-cell .dot { width:16px; height:16px; border-radius:50%; border:2px solid #93c5fd; display:inline-block; }
+    #staff-student .scale-cell input[type="radio"]:checked + .dot { background:#10b981; border-color:#10b981; }
+
+    /* Spacing */
+    #staff-student .vspace-s { margin-top:.5rem; }
+    #staff-student .vspace { margin-top:.75rem; }
+    #staff-student .vspace-l { margin-top:1rem; }
+  </style>
+
+  <div class="wrap">
+    <!-- Header -->
     <div class="card">
-      <h2>Staff assessment</h2>
-      <form method="post" action="/staff/student/<%= student.id %>/assess">
-        <label>
-          <span class="label">Term</span>
+      <h1 style="margin:.2rem 0 .5rem 0;"><%= student.full_name %></h1>
+      <div class="muted">
+        Username: <strong><%= student.username %></strong>
+        <% if (inClass && inClass.class_id) { %>
+          • Class: <strong><% const cls = (classes||[]).find(c => c.id === inClass.class_id); %><%= cls ? cls.name : '—' %></strong>
+        <% } %>
+      </div>
+    </div>
+
+    <div class="vspace"></div>
+
+    <!-- Top split: left forms, right chart & latest tables -->
+    <div class="grid-2">
+      <!-- LEFT: Staff assessment form + staff comment form -->
+      <div class="card">
+        <h2 style="margin-top:0">Staff assessment</h2>
+        <form method="post" action="/staff/student/<%= student.id %>/assess">
+          <label>Term</label>
           <select name="term">
             <% (terms || []).forEach(t => { %>
               <option value="<%= t %>"><%= t %></option>
             <% }) %>
           </select>
-        </label>
 
-        <div class="skills-list" style="margin-top:.5rem">
-          <% (skills || []).forEach(s => { %>
-            <div class="skill-row">
-              <div class="skill-name"><%= s.name %></div>
-              <div class="scale-inputs" role="group" aria-label="<%= s.name %> score">
-                <% for (let i=1;i<=5;i++){ %>
-                  <label class="scale-cell">
-                    <input type="radio" name="<%= s.key %>" value="<%= i %>" required>
-                    <span class="dot" aria-hidden="true"></span>
-                  </label>
-                <% } %>
-              </div>
-            </div>
-          <% }) %>
-        </div>
-
-        <div style="margin-top:1rem">
-          <button class="btn" type="submit">Save staff assessment</button>
-        </div>
-      </form>
-    </div>
-
-    <!-- Staff comment -->
-    <div class="card">
-      <h2>Staff comment</h2>
-      <form method="post" action="/staff/student/<%= student.id %>/comment">
-        <div class="grid two">
-          <label>
-            <span class="label">Term</span>
-            <select name="term">
-              <% (terms || []).forEach(t => { %>
-                <option value="<%= t %>"><%= t %></option>
-              <% }) %>
-            </select>
-          </label>
-        </div>
-<label style="margin-top:.5rem; display:block">
-  <span class="label">Comment</span>
-  <textarea 
-    name="comment" 
-    style="width:100%; height:120px; resize:none; margin-top:.25rem"
-    placeholder="Constructive summary of progress and next steps"></textarea>
-</label>
-
-        <div style="margin-top:1rem">
-          <button class="btn" type="submit">Add comment</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Training resources: upload + list -->
-  <div class="card" style="margin-top:1rem">
-    <h2>Training resources</h2>
-
-    <!-- Upload form -->
-    <form method="post" action="/staff/student/<%= student.id %>/resource" enctype="multipart/form-data" class="grid three" style="gap:1rem">
-      <label>
-        <span class="label">Title</span>
-        <input type="text" name="title" required placeholder="e.g. Food Hygiene PPT Week 1">
-      </label>
-      <label>
-        <span class="label">Link (optional)</span>
-        <input type="url" name="url" placeholder="https://example.com/training">
-      </label>
-      <label>
-        <span class="label">Upload file (optional)</span>
-        <input type="file" name="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.mp4,.zip">
-      </label>
-      <div style="grid-column: 1 / -1">
-        <button class="btn" type="submit">Add resource</button>
-      </div>
-    </form>
-
-    <!-- Existing resources -->
-    <% const resList = (typeof resources !== 'undefined' && resources) ? resources : []; %>
-    <% if (!resList.length) { %>
-      <p class="muted" style="margin-top:.75rem">No resources yet.</p>
-    <% } else { %>
-      <ul style="margin-top:.75rem">
-        <% resList.forEach(r => { %>
-          <li style="margin-bottom:.5rem">
-            <strong><%= r.title %></strong>
-            <% if (r.url) { %>
-              — <a href="<%= r.url %>" target="_blank" rel="noopener">Open link</a>
-            <% } %>
-            <% if (r.file_path) { %>
-              — <a href="<%= r.file_path %>" target="_blank" rel="noopener">Download file</a>
-            <% } %>
-            <span class="muted"> • <%= r.created_at %></span>
-            <form method="post" action="/staff/student/<%= student.id %>/resource/<%= r.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this resource?');">
-              <button class="btn outline small" type="submit">Delete</button>
-            </form>
-          </li>
-        <% }) %>
-      </ul>
-    <% } %>
-  </div>
-
-  <!-- Self-assessments -->
-  <div class="card" style="margin-top:1rem">
-    <h2>Self-assessments</h2>
-    <% if (!selfRows || !selfRows.length) { %>
-      <p class="muted">No self-assessments yet.</p>
-    <% } else { %>
-      <ul>
-        <% selfRows.forEach(h => { 
-             let obj = {};
-             try { obj = JSON.parse(h.skills_json || '{}'); } catch(e) {}
-        %>
-          <li style="margin-bottom:.5rem">
-            <strong><%= h.term || 'Term' %></strong>
-            <span class="muted"> — <%= h.created_at %></span>
-            <div class="small muted">
-              Timekeeping: <%= obj.timekeeping || 0 %>,
-              Teamwork: <%= obj.teamwork || 0 %>,
-              Communication: <%= obj.communication || 0 %>,
-              Problem Solving: <%= obj.problem_solving || 0 %>,
-              Following Instructions: <%= obj.following_instructions || 0 %>,
-              Customer Service: <%= obj.customer_service || 0 %>
-            </div>
-            <% if ((h.reflection||'').trim() || (h.target||'').trim()) { %>
-              <details style="margin-top:.25rem">
-                <summary>Reflection & target</summary>
-                <div class="small" style="margin-top:.25rem">
-                  <div><strong>Reflection:</strong> <%= (h.reflection||'').trim() || '—' %></div>
-                  <div><strong>Target:</strong> <%= (h.target||'').trim() || '—' %></div>
+          <div class="skills-list vspace-s">
+            <% (skills || []).forEach(s => { %>
+              <div class="skill-row">
+                <div style="font-weight:600;"><%= s.name %></div>
+                <div class="scale-inputs" role="group" aria-label="<%= s.name %> score">
+                  <% for (let i=1;i<=5;i++){ %>
+                    <label class="scale-cell">
+                      <input type="radio" name="<%= s.key %>" value="<%= i %>" required>
+                      <span class="dot" aria-hidden="true"></span>
+                    </label>
+                  <% } %>
                 </div>
-              </details>
-            <% } %>
-          </li>
-        <% }) %>
-      </ul>
-    <% } %>
-  </div>
+              </div>
+            <% }) %>
+          </div>
 
-  <!-- Applications -->
-  <div class="card" style="margin-top:1rem">
-    <h2>Applications</h2>
-    <% if (!apps || !apps.length) { %>
-      <p class="muted">No job applications yet.</p>
-    <% } else { %>
-      <ul>
-        <% apps.forEach(a => { %>
-          <li style="margin-bottom:.5rem">
-            <strong><%= a.job_role || a.advert_title || 'Application' %></strong>
-            <span class="muted"> — <%= a.created_at %> • Status: <%= a.status %></span>
-            <a class="btn outline small" href="/staff/applications/<%= a.app_id || a.id %>" style="margin-left:.5rem">View</a>
-          </li>
-        <% }) %>
-      </ul>
-    <% } %>
+          <div class="vspace">
+            <button class="btn" type="submit">Save staff assessment</button>
+          </div>
+        </form>
+
+        <div class="vspace-l"></div>
+
+        <h2 style="margin-top:0">Staff comment</h2>
+        <form method="post" action="/staff/student/<%= student.id %>/comment">
+          <label>Term</label>
+          <select name="term">
+            <% (terms || []).forEach(t => { %>
+              <option value="<%= t %>"><%= t %></option>
+            <% }) %>
+          </select>
+
+          <div class="vspace-s">
+            <label>Comment</label>
+            <textarea name="comment" placeholder="Constructive summary of progress and next steps"></textarea>
+          </div>
+
+          <div class="vspace">
+            <button class="btn" type="submit">Add comment</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- RIGHT: Radar + latest tables -->
+      <div class="card">
+        <h2 style="margin-top:0">Scores overview</h2>
+
+        <div class="card card-tight vspace-s">
+          <div class="card-section">
+            <h3 style="margin:0 0 .5rem 0; font-size:1.05rem;">Student vs Staff</h3>
+          </div>
+          <div class="card-section" style="padding-top:0;">
+            <canvas id="saRadar" aria-label="Radar chart of skills" role="img"></canvas>
+          </div>
+        </div>
+
+        <div class="grid-2 vspace">
+          <div>
+            <h3 style="margin:.25rem 0;">Latest student self-assessment</h3>
+            <% if (!latestSelf) { %>
+              <p class="muted">No student self-assessment yet.</p>
+            <% } else { 
+                 let sObj = {};
+                 try { sObj = JSON.parse(latestSelf.skills_json || '{}') } catch(e) {}
+            %>
+              <p class="muted">
+                <span class="pill"><%= latestSelf.term || '—' %></span>
+                <span style="margin-left:8px;"><%= new Date(latestSelf.created_at).toLocaleString() %></span>
+              </p>
+              <table class="vspace-s">
+                <thead><tr><th>Skill</th><th>Score</th></tr></thead>
+                <tbody>
+                  <% (skills||[]).forEach(function(s){ %>
+                    <tr><td><%= s.name %></td><td><%= sObj[s.key] ?? '—' %></td></tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            <% } %>
+          </div>
+
+          <div>
+            <h3 style="margin:.25rem 0;">Latest staff assessment</h3>
+            <% if (!latestStaff) { %>
+              <p class="muted">No staff assessment yet.</p>
+            <% } else { 
+                 let tObj = {};
+                 try { tObj = JSON.parse(latestStaff.skills_json || '{}') } catch(e) {}
+            %>
+              <p class="muted">
+                <span class="pill"><%= latestStaff.term || '—' %></span>
+                <span style="margin-left:8px;"><%= new Date(latestStaff.created_at).toLocaleString() %></span>
+              </p>
+              <table class="vspace-s">
+                <thead><tr><th>Skill</th><th>Score</th></tr></thead>
+                <tbody>
+                  <% (skills||[]).forEach(function(s){ %>
+                    <tr><td><%= s.name %></td><td><%= tObj[s.key] ?? '—' %></td></tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            <% } %>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="vspace"></div>
+
+    <!-- Training resources -->
+    <div class="card">
+      <h2 style="margin-top:0">Training resources</h2>
+
+      <form method="post" action="/staff/student/<%= student.id %>/resource" enctype="multipart/form-data" class="grid-3">
+        <div>
+          <label>Title</label>
+          <input type="text" name="title" required placeholder="e.g. Food Hygiene PPT Week 1">
+        </div>
+        <div>
+          <label>Link (optional)</label>
+          <input type="url" name="url" placeholder="https://example.com/training">
+        </div>
+        <div>
+          <label>Upload file (optional)</label>
+          <input type="file" name="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.mp4,.zip">
+        </div>
+        <div style="grid-column: 1 / -1;">
+          <button class="btn" type="submit">Add resource</button>
+        </div>
+      </form>
+
+      <% const resList = (typeof resources !== 'undefined' && resources) ? resources : []; %>
+      <% if (!resList.length) { %>
+        <p class="muted vspace-s">No resources yet.</p>
+      <% } else { %>
+        <table class="vspace-s">
+          <thead>
+            <tr>
+              <th style="width:40%;">Title</th>
+              <th style="width:30%;">Link</th>
+              <th style="width:20%;">File</th>
+              <th style="width:10%;">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% resList.forEach(function(r){ %>
+              <tr>
+                <td><%= r.title %></td>
+                <td>
+                  <% if (r.url) { %><a href="<%= r.url %>" target="_blank" rel="noopener">Open link</a><% } else { %><span class="muted">—</span><% } %>
+                </td>
+                <td>
+                  <% if (r.file_path) { %><a href="<%= r.file_path %>" target="_blank" rel="noopener">Download file</a><% } else { %><span class="muted">—</span><% } %>
+                </td>
+                <td>
+                  <form method="post" action="/staff/student/<%= student.id %>/resource/<%= r.id %>/delete" onsubmit="return confirm('Delete this resource?')" style="display:inline;">
+                    <button class="btn outline" type="submit">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+
+    <div class="vspace"></div>
+
+    <!-- Self-assessment history -->
+    <div class="card">
+      <h2 style="margin-top:0">Self-assessments</h2>
+      <% if (!selfRows || !selfRows.length) { %>
+        <p class="muted">No self-assessments yet.</p>
+      <% } else { %>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:18%;">Date</th>
+              <th style="width:18%;">Term</th>
+              <th>Top scores</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% selfRows.forEach(function(h){
+                 let obj = {};
+                 try { obj = JSON.parse(h.skills_json || '{}'); } catch(e) {}
+                 const top3 = (Object.entries(obj).map(([k,v])=>({k,v}))
+                   .sort((a,b)=>(b.v||0)-(a.v||0)).slice(0,3));
+            %>
+              <tr>
+                <td><%= new Date(h.created_at).toLocaleString() %></td>
+                <td><span class="pill"><%= h.term || '—' %></span></td>
+                <td class="muted">
+                  <% if (!top3.length) { %>—<% } else { %>
+                    <% top3.forEach(function(s,idx){
+                         const sk = (skills||[]).find(x=>x.key===s.k);
+                    %>
+                      <%= (sk && sk.name) ? sk.name : s.k %> = <strong><%= s.v %></strong><%= idx<top3.length-1 ? ', ' : '' %>
+                    <% }) %>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+
+    <div class="vspace"></div>
+
+    <!-- Job applications -->
+    <div class="card">
+      <h2 style="margin-top:0">Applications</h2>
+      <% if (!apps || !apps.length) { %>
+        <p class="muted">No job applications yet.</p>
+      <% } else { %>
+        <table>
+          <thead>
+            <tr>
+              <th style="width:18%;">Date</th>
+              <th style="width:25%;">Employer</th>
+              <th style="width:25%;">Role</th>
+              <th style="width:16%;">Status</th>
+              <th style="width:16%;">CV</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% apps.forEach(function(a){ %>
+              <tr>
+                <td><%= new Date(a.created_at).toLocaleString() %></td>
+                <td><%= a.employer || '—' %></td>
+                <td><%= (a.advert_title || a.job_role || '—') %></td>
+                <td><span class="pill"><%= a.status || '—' %></span></td>
+                <td>
+                  <% if (a.cv_path) { %><a href="<%= a.cv_path %>" target="_blank">download</a><% } else { %><span class="muted">—</span><% } %>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } %>
+    </div>
+
+    <div class="vspace-l"></div>
   </div>
 </div>
 
-<style>
-  .skills-list { display:flex; flex-direction:column; gap:.5rem; }
-  .skill-row { display:grid; grid-template-columns: 1fr 280px; align-items:center; gap:.75rem; }
-  .skill-name { font-weight:600; }
-  .scale-inputs { display:grid; grid-template-columns: repeat(5, 1fr); gap:.5rem; }
-  .scale-cell { display:flex; align-items:center; justify-content:center; }
-  .scale-cell input[type="radio"] { position:absolute; opacity:0; width:0; height:0; }
-  .scale-cell .dot { width:16px; height:16px; border-radius:50%; border:2px solid #93c5fd; display:inline-block; }
-  .scale-cell input[type="radio"]:checked + .dot { background:#10b981; border-color:#10b981; }
-  .btn.small { padding:.25rem .5rem; font-size:.85rem; }
-</style>
+<!-- Chart.js (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+(function(){
+  const labels = <%- JSON.stringify(labels) %>;
+  const stu = <%- JSON.stringify(stuScores) %>;
+  const staff = <%- JSON.stringify(staffScores) %>;
+
+  const hasStudent = Array.isArray(stu) && stu.some(v => v !== null && v !== undefined && v !== '');
+  const hasStaff   = Array.isArray(staff) && staff.some(v => v !== null && v !== undefined && v !== '');
+  const ctx = document.getElementById('saRadar');
+  if (!ctx || (!hasStudent && !hasStaff)) return;
+
+  const studentColor = 'rgba(37, 99, 235, 0.6)';   // blue
+  const studentBorder = 'rgba(37, 99, 235, 1)';
+  const staffColor   = 'rgba(16, 185, 129, 0.45)'; // green
+  const staffBorder  = 'rgba(16, 185, 129, 1)';
+
+  const fix = arr => arr.map(v => (v == null ? 0 : Number(v)));
+
+  const datasets = [];
+  if (hasStudent) {
+    datasets.push({ label:'Student', data:fix(stu), backgroundColor:studentColor, borderColor:studentBorder, borderWidth:2, pointBackgroundColor:studentBorder, pointBorderColor:'#fff', pointRadius:3 });
+  }
+  if (hasStaff) {
+    datasets.push({ label:'Staff', data:fix(staff), backgroundColor:staffColor, borderColor:staffBorder, borderWidth:2, pointBackgroundColor:staffBorder, pointBorderColor:'#fff', pointRadius:3 });
+  }
+
+  new Chart(ctx, {
+    type: 'radar',
+    data: { labels, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:true,
+      plugins:{ legend:{ position:'top' } },
+      elements:{ line:{ tension:0.2 } },
+      scales:{
+        r:{
+          suggestedMin:0, suggestedMax:5,
+          ticks:{ stepSize:1, backdropColor:'transparent' },
+          grid:{ color:'rgba(0,0,0,0.08)' },
+          angleLines:{ color:'rgba(0,0,0,0.08)' },
+          pointLabels:{ font:{ size:12 } }
+        }
+      }
+    }
+  });
+})();
+</script>
 
 <%- include('../partials/footer.js') %>
