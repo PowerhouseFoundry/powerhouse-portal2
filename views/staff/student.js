@@ -1,21 +1,21 @@
 <%
   const title  = 'Student Profile';
-  const active = 'dashboard';
+  const active = 'staff-dashboard';
 
-  // Ensure we have latest rows
-  const latestSelf  = (typeof latestSelf !== 'undefined' && latestSelf) ? latestSelf : ((selfRows && selfRows[0]) || null);
-  const latestStaff = (typeof latestStaff !== 'undefined' && latestStaff) ? latestStaff : ((staffRows && staffRows[0]) || null);
+  // Use different local names so we don't shadow server-provided vars
+  const latestSelfRow  = (typeof latestSelf !== 'undefined' && latestSelf) ? latestSelf : ((selfRows && selfRows[0]) || null);
+  const latestStaffRow = (typeof latestStaff !== 'undefined' && latestStaff) ? latestStaff : ((staffRows && staffRows[0]) || null);
 
   // Prep radar data
   const labels = (skills||[]).map(s => s.name);
   let stuScores = [];
   let staffScores = [];
   try {
-    const s = (latestSelf && latestSelf.skills_json) ? JSON.parse(latestSelf.skills_json) : {};
+    const s = (latestSelfRow && latestSelfRow.skills_json) ? JSON.parse(latestSelfRow.skills_json) : {};
     stuScores = (skills||[]).map(k => s[k.key] ?? null);
   } catch(e){ stuScores = (skills||[]).map(()=>null); }
   try {
-    const t = (latestStaff && latestStaff.skills_json) ? JSON.parse(latestStaff.skills_json) : {};
+    const t = (latestStaffRow && latestStaffRow.skills_json) ? JSON.parse(latestStaffRow.skills_json) : {};
     staffScores = (skills||[]).map(k => t[k.key] ?? null);
   } catch(e){ staffScores = (skills||[]).map(()=>null); }
 %>
@@ -28,55 +28,44 @@
     #staff-student .muted { color:#6b7280; }
     #staff-student .pill { display:inline-block; padding:2px 8px; border-radius:999px; background:#f3f4f6; font-size:.85rem; }
 
-    /* Cards */
-    #staff-student .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px; }
-    #staff-student .card-tight { padding:0; overflow:hidden; }
-    #staff-student .card-section { padding:14px; }
+    .card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px; }
+    .card-tight { padding:0; overflow:hidden; }
+    .card-section { padding:14px; }
 
-    /* Buttons */
-    #staff-student .btn {
+    .btn {
       background:#6d28d9; color:#fff; border:1px solid #6d28d9;
       border-radius:10px; padding:9px 12px; font-weight:600; cursor:pointer;
       display:inline-flex; align-items:center; justify-content:center; gap:.4rem;
       transition: background .2s, border-color .2s; text-decoration:none; white-space:nowrap;
     }
-    #staff-student .btn:hover { background:#5b21b6; border-color:#5b21b6; }
-    #staff-student .btn.outline { background:#fff; color:#6d28d9; }
+    .btn:hover { background:#5b21b6; border-color:#5b21b6; }
+    .btn.outline { background:#fff; color:#6d28d9; }
 
-    /* Inputs */
-    #staff-student label { display:block; font-weight:600; margin:.25rem 0 .35rem; }
-    #staff-student select,
-    #staff-student textarea,
-    #staff-student input[type="text"],
-    #staff-student input[type="url"],
-    #staff-student input[type="file"] {
+    label { display:block; font-weight:600; margin:.25rem 0 .35rem; }
+    select, textarea, input[type="text"], input[type="url"], input[type="file"] {
       width:100%; border:1px solid #d1d5db; border-radius:10px; padding:10px 12px; box-sizing:border-box; display:block; font: inherit;
     }
-    #staff-student textarea { min-height:110px; resize:vertical; }
+    textarea { min-height:110px; resize:vertical; }
 
-    /* Tables */
-    #staff-student table { width:100%; border-collapse: collapse; }
-    #staff-student th, #staff-student td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
-    #staff-student th { background:#f9fafb; font-weight:700; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { text-align:left; padding:10px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
+    th { background:#f9fafb; font-weight:700; }
 
-    /* Grids */
-    #staff-student .grid-2 { display:grid; grid-template-columns: 1.05fr 1fr; gap:12px; }
-    #staff-student .grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
-    @media (max-width: 980px){ #staff-student .grid-2, #staff-student .grid-3 { grid-template-columns: 1fr; } }
+    .grid-2 { display:grid; grid-template-columns: 1.05fr 1fr; gap:12px; }
+    .grid-3 { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
+    @media (max-width: 980px){ .grid-2, .grid-3 { grid-template-columns: 1fr; } }
 
-    /* Skill inputs row (for staff assessment form) */
-    #staff-student .skills-list { display:flex; flex-direction:column; gap:.5rem; }
-    #staff-student .skill-row { display:grid; grid-template-columns: 1fr 280px; align-items:center; gap:.75rem; }
-    #staff-student .scale-inputs { display:grid; grid-template-columns: repeat(5, 1fr); gap:.5rem; }
-    #staff-student .scale-cell { display:flex; align-items:center; justify-content:center; }
-    #staff-student .scale-cell input[type="radio"] { position:absolute; opacity:0; width:0; height:0; }
-    #staff-student .scale-cell .dot { width:16px; height:16px; border-radius:50%; border:2px solid #93c5fd; display:inline-block; }
-    #staff-student .scale-cell input[type="radio"]:checked + .dot { background:#10b981; border-color:#10b981; }
+    .skills-list { display:flex; flex-direction:column; gap:.5rem; }
+    .skill-row { display:grid; grid-template-columns: 1fr 280px; align-items:center; gap:.75rem; }
+    .scale-inputs { display:grid; grid-template-columns: repeat(5, 1fr); gap:.5rem; }
+    .scale-cell { display:flex; align-items:center; justify-content:center; }
+    .scale-cell input[type="radio"] { position:absolute; opacity:0; width:0; height:0; }
+    .scale-cell .dot { width:16px; height:16px; border-radius:50%; border:2px solid #93c5fd; display:inline-block; }
+    .scale-cell input[type="radio"]:checked + .dot { background:#10b981; border-color:#10b981; }
 
-    /* Spacing */
-    #staff-student .vspace-s { margin-top:.5rem; }
-    #staff-student .vspace { margin-top:.75rem; }
-    #staff-student .vspace-l { margin-top:1rem; }
+    .vspace-s { margin-top:.5rem; }
+    .vspace { margin-top:.75rem; }
+    .vspace-l { margin-top:1rem; }
   </style>
 
   <div class="wrap">
@@ -93,9 +82,8 @@
 
     <div class="vspace"></div>
 
-    <!-- Top split: left forms, right chart & latest tables -->
     <div class="grid-2">
-      <!-- LEFT: Staff assessment form + staff comment form -->
+      <!-- LEFT: Staff assessment + comment -->
       <div class="card">
         <h2 style="margin-top:0">Staff assessment</h2>
         <form method="post" action="/staff/student/<%= student.id %>/assess">
@@ -165,15 +153,15 @@
         <div class="grid-2 vspace">
           <div>
             <h3 style="margin:.25rem 0;">Latest student self-assessment</h3>
-            <% if (!latestSelf) { %>
+            <% if (!latestSelfRow) { %>
               <p class="muted">No student self-assessment yet.</p>
             <% } else { 
                  let sObj = {};
-                 try { sObj = JSON.parse(latestSelf.skills_json || '{}') } catch(e) {}
+                 try { sObj = JSON.parse(latestSelfRow.skills_json || '{}') } catch(e) {}
             %>
               <p class="muted">
-                <span class="pill"><%= latestSelf.term || '—' %></span>
-                <span style="margin-left:8px;"><%= new Date(latestSelf.created_at).toLocaleString() %></span>
+                <span class="pill"><%= latestSelfRow.term || '—' %></span>
+                <span style="margin-left:8px;"><%= new Date(latestSelfRow.created_at).toLocaleString() %></span>
               </p>
               <table class="vspace-s">
                 <thead><tr><th>Skill</th><th>Score</th></tr></thead>
@@ -188,15 +176,15 @@
 
           <div>
             <h3 style="margin:.25rem 0;">Latest staff assessment</h3>
-            <% if (!latestStaff) { %>
+            <% if (!latestStaffRow) { %>
               <p class="muted">No staff assessment yet.</p>
             <% } else { 
                  let tObj = {};
-                 try { tObj = JSON.parse(latestStaff.skills_json || '{}') } catch(e) {}
+                 try { tObj = JSON.parse(latestStaffRow.skills_json || '{}') } catch(e) {}
             %>
               <p class="muted">
-                <span class="pill"><%= latestStaff.term || '—' %></span>
-                <span style="margin-left:8px;"><%= new Date(latestStaff.created_at).toLocaleString() %></span>
+                <span class="pill"><%= latestStaffRow.term || '—' %></span>
+                <span style="margin-left:8px;"><%= new Date(latestStaffRow.created_at).toLocaleString() %></span>
               </p>
               <table class="vspace-s">
                 <thead><tr><th>Skill</th><th>Score</th></tr></thead>
@@ -352,7 +340,6 @@
   </div>
 </div>
 
-<!-- Chart.js (CDN) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function(){
@@ -365,20 +352,16 @@
   const ctx = document.getElementById('saRadar');
   if (!ctx || (!hasStudent && !hasStaff)) return;
 
-  const studentColor = 'rgba(37, 99, 235, 0.6)';   // blue
+  const studentColor = 'rgba(37, 99, 235, 0.6)';
   const studentBorder = 'rgba(37, 99, 235, 1)';
-  const staffColor   = 'rgba(16, 185, 129, 0.45)'; // green
+  const staffColor   = 'rgba(16, 185, 129, 0.45)';
   const staffBorder  = 'rgba(16, 185, 129, 1)';
 
   const fix = arr => arr.map(v => (v == null ? 0 : Number(v)));
 
   const datasets = [];
-  if (hasStudent) {
-    datasets.push({ label:'Student', data:fix(stu), backgroundColor:studentColor, borderColor:studentBorder, borderWidth:2, pointBackgroundColor:studentBorder, pointBorderColor:'#fff', pointRadius:3 });
-  }
-  if (hasStaff) {
-    datasets.push({ label:'Staff', data:fix(staff), backgroundColor:staffColor, borderColor:staffBorder, borderWidth:2, pointBackgroundColor:staffBorder, pointBorderColor:'#fff', pointRadius:3 });
-  }
+  if (hasStudent) datasets.push({ label:'Student', data:fix(stu), backgroundColor:studentColor, borderColor:studentBorder, borderWidth:2, pointBackgroundColor:studentBorder, pointBorderColor:'#fff', pointRadius:3 });
+  if (hasStaff)   datasets.push({ label:'Staff',   data:fix(staff), backgroundColor:staffColor,  borderColor:staffBorder,  borderWidth:2, pointBackgroundColor:staffBorder,  pointBorderColor:'#fff', pointRadius:3 });
 
   new Chart(ctx, {
     type: 'radar',
