@@ -2,6 +2,11 @@
   const title  = 'Self-Assessment';
   const active = 'self';
 
+  const cycleTerms = ['Autumn', 'Spring', 'Summer'];
+  const historyCount = Array.isArray(history) ? history.length : 0;
+  const nextTerm = cycleTerms[historyCount % cycleTerms.length];
+  const showNewForm = (!latest) || String((typeof newForm !== 'undefined' ? newForm : '')) === '1';
+
   // Chart data prep
   const labels = (skills||[]).map(s => s.name);
   let stuScores = [];
@@ -46,6 +51,10 @@
       transition: background .2s, border-color .2s; white-space:nowrap; text-decoration:none;
     }
     #self-assessment-page .btn:hover { background:#5b21b6; border-color:#5b21b6; }
+    #self-assessment-page .btn-secondary {
+      background:#fff; color:#6d28d9; border:1px solid #d8b4fe;
+    }
+    #self-assessment-page .btn-secondary:hover { background:#faf5ff; border-color:#c084fc; }
 
     /* Grid */
     #self-assessment-page .grid-2 { display:grid; grid-template-columns: 1fr 1.2fr; gap:12px; }
@@ -57,7 +66,7 @@
       padding:8px 10px; border:1px solid #e5e7eb; border-radius:10px; background:#fafafa;
     }
     #self-assessment-page .skill-name { font-weight:600; }
-    #self-assessment-page .score-choices { display:flex; gap:8px; align-items:center; }
+    #self-assessment-page .score-choices { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     #self-assessment-page .score-choices input { accent-color:#6d28d9; }
 
     /* Tables */
@@ -68,6 +77,12 @@
     #self-assessment-page th { background:#f9fafb; font-weight:700; }
     #self-assessment-page .pill {
       display:inline-block; padding:2px 8px; border-radius:999px; background:#f3f4f6; font-size:.85rem;
+    }
+    #self-assessment-page .term-box {
+      background:#faf5ff; border:1px solid #e9d5ff; border-radius:12px; padding:10px 12px;
+    }
+    #self-assessment-page .actions-row {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
     }
 
     /* Spacing */
@@ -85,19 +100,25 @@
   <div class="wrap">
     <h1>Self-Assessment</h1>
 
-    <!-- TWO-COLUMN: Left = form or comments; Right = radar + score tables -->
     <div class="grid-2">
 
-      <!-- LEFT: Form (if first time) OR Comments (student + staff) -->
       <div class="card">
-        <% if (!latest) { %>
-          <h2 style="margin-top:0">Your self-assessment</h2>
+        <% if (showNewForm) { %>
+          <div class="actions-row" style="justify-content:space-between; margin-bottom:.5rem;">
+            <h2 style="margin:0">Your self-assessment</h2>
+            <% if (latest) { %>
+              <a class="btn btn-secondary" href="/self-assessment">Cancel</a>
+            <% } %>
+          </div>
+
           <form method="post" action="/self-assessment">
             <label>Term</label>
-            <select name="term" required>
-              <% (terms||[]).forEach(function(t){ %>
-                <option value="<%= t %>"><%= t %></option>
-              <% }) %>
+            <div class="term-box">
+              <div style="font-weight:700;"><%= nextTerm %></div>
+              <div class="muted" style="margin-top:4px;">The assessment cycle repeats Autumn, Spring, Summer.</div>
+            </div>
+            <select name="term" required style="display:none;">
+              <option value="<%= nextTerm %>" selected><%= nextTerm %></option>
             </select>
 
             <div class="vspace"></div>
@@ -110,7 +131,7 @@
                   <div class="skill-name"><%= s.name %></div>
                   <div class="score-choices">
                     <% for (let i=1;i<=5;i++){ %>
-                      <label style="display:flex; align-items:center; gap:6px; font-weight:600;">
+                      <label style="display:flex; align-items:center; gap:6px; font-weight:600; margin:0;">
                         <input type="radio" name="<%= s.key %>" value="<%= i %>" required>
                         <span><%= i %></span>
                       </label>
@@ -130,17 +151,28 @@
               <textarea name="target" placeholder="What is one thing you will work on next?"></textarea>
             </div>
 
-            <div class="vspace">
+            <div class="vspace actions-row">
               <button class="btn" type="submit">Submit self-assessment</button>
+              <% if (latest) { %>
+                <a class="btn btn-secondary" href="/self-assessment">Keep current view</a>
+              <% } %>
             </div>
           </form>
         <% } else { %>
-          <h2 style="margin-top:0">Reflections & comments</h2>
+          <div class="actions-row" style="justify-content:space-between; margin-bottom:.5rem;">
+            <h2 style="margin:0">Reflections & comments</h2>
+            <a class="btn" href="/self-assessment?newForm=1">Start new self-assessment</a>
+          </div>
 
           <p class="muted">
             <span class="pill"><%= latest.term || '—' %></span>
             <span style="margin-left:8px;"><%= new Date(latest.created_at).toLocaleString() %></span>
           </p>
+
+          <div class="term-box vspace-s">
+            <div style="font-weight:700;">Next self-assessment: <%= nextTerm %></div>
+            <div class="muted" style="margin-top:4px;">Your previous self-assessments stay in history so progress can be tracked over several years.</div>
+          </div>
 
           <% if (latest.reflection) { %>
             <div class="vspace">
@@ -170,14 +202,12 @@
         <% } %>
       </div>
 
-      <!-- RIGHT: Radar + score tables -->
       <div class="card">
         <h2 style="margin-top:0">Scores overview</h2>
 
         <% if (!latest && !staffLatest) { %>
           <p class="muted">No scores to show yet.</p>
         <% } else { %>
-          <!-- Radar Chart -->
           <div class="chart-wrap">
             <div class="card chart-card">
               <div class="chart-header">
@@ -189,8 +219,7 @@
             </div>
           </div>
 
-          <!-- Student scores -->
-          <% if (latest) { 
+          <% if (latest) {
                let latestScores = {};
                try { latestScores = JSON.parse(latest.skills_json || '{}') } catch(e) {}
           %>
@@ -210,8 +239,7 @@
             </table>
           <% } %>
 
-          <!-- Staff scores -->
-          <% if (staffLatest) { 
+          <% if (staffLatest) {
                let staffScoresObj = {};
                try { staffScoresObj = JSON.parse(staffLatest.skills_json || '{}') } catch(e) {}
           %>
@@ -234,7 +262,6 @@
       </div>
     </div>
 
-    <!-- History -->
     <div class="card vspace-l">
       <h2 style="margin-top:0">Your history</h2>
       <% if (!history || !history.length) { %>
@@ -250,33 +277,32 @@
             </tr>
           </thead>
           <tbody>
-            <% history.forEach(function(h){ 
+            <% history.forEach(function(h){
                  let scores = {};
                  try { scores = JSON.parse(h.skills_json || '{}') } catch(e) {}
-                 const top3 = (Object.entries(scores)
-                               .map(([k,v])=>({k,v}))
-                               .sort((a,b)=>(b.v||0)-(a.v||0))
-                               .slice(0,3));
+                 const top3 = Object.entries(scores)
+                   .map(([k,v]) => ({ k, v }))
+                   .sort((a,b) => (b.v||0) - (a.v||0))
+                   .slice(0,3);
             %>
               <tr>
                 <td><%= new Date(h.created_at).toLocaleString() %></td>
                 <td><span class="pill"><%= h.term || '—' %></span></td>
-                <td>
-                  <% if (top3.length) { %>
-                    <div class="muted">
-                      <% top3.forEach(function(s,idx){ 
-                           const sk = (skills||[]).find(x=>x.key===s.k);
-                      %>
-                        <span><%= (sk && sk.name) ? sk.name : s.k %> = <strong><%= s.v %></strong></span><%= idx < top3.length-1 ? ', ' : '' %>
-                      <% }) %>
-                    </div>
-                  <% } else { %>
-                    <span class="muted">—</span>
+                <td class="muted">
+                  <% if (!top3.length) { %>—<% } else { %>
+                    <% top3.forEach(function(s, idx){
+                         const skill = (skills||[]).find(x => x.key === s.k);
+                    %>
+                      <%= (skill && skill.name) ? skill.name : s.k %> = <strong><%= s.v %></strong><%= idx < top3.length - 1 ? ', ' : '' %>
+                    <% }) %>
                   <% } %>
                 </td>
                 <td>
-                  <form method="post" action="/self-assessment/<%= h.id %>/delete" onsubmit="return confirm('Delete this entry?')">
-                    <button class="btn" type="submit">Delete</button>
+                  <% if (latest && Number(h.id) === Number(latest.id)) { %>
+                    <span class="pill">Latest</span>
+                  <% } %>
+                  <form method="post" action="/self-assessment/<%= h.id %>/delete" onsubmit="return confirm('Delete this self-assessment?')" style="display:inline-block; margin-left:6px;">
+                    <button class="btn btn-secondary" type="submit">Delete</button>
                   </form>
                 </td>
               </tr>
@@ -285,10 +311,11 @@
         </table>
       <% } %>
     </div>
+
+    <div class="vspace-l"></div>
   </div>
 </div>
 
-<!-- Chart.js (CDN) -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 (function(){
@@ -298,10 +325,8 @@
 
   const hasStudent = Array.isArray(stu) && stu.some(v => v !== null && v !== undefined && v !== '');
   const hasStaff   = Array.isArray(staff) && staff.some(v => v !== null && v !== undefined && v !== '');
-  if (!hasStudent && !hasStaff) return;
-
   const ctx = document.getElementById('saRadar');
-  if (!ctx) return;
+  if (!ctx || (!hasStudent && !hasStaff)) return;
 
   const studentColor = 'rgba(37, 99, 235, 0.6)';
   const studentBorder = 'rgba(37, 99, 235, 1)';
@@ -311,47 +336,23 @@
   const fix = arr => arr.map(v => (v == null ? 0 : Number(v)));
 
   const datasets = [];
-  if (hasStudent) {
-    datasets.push({
-      label: 'Student',
-      data: fix(stu),
-      backgroundColor: studentColor,
-      borderColor: studentBorder,
-      borderWidth: 2,
-      pointBackgroundColor: studentBorder,
-      pointBorderColor: '#fff',
-      pointRadius: 3
-    });
-  }
-  if (hasStaff) {
-    datasets.push({
-      label: 'Staff',
-      data: fix(staff),
-      backgroundColor: staffColor,
-      borderColor: staffBorder,
-      borderWidth: 2,
-      pointBackgroundColor: staffBorder,
-      pointBorderColor: '#fff',
-      pointRadius: 3
-    });
-  }
+  if (hasStudent) datasets.push({ label:'Student', data:fix(stu), backgroundColor:studentColor, borderColor:studentBorder, borderWidth:2, pointBackgroundColor:studentBorder, pointBorderColor:'#fff', pointRadius:3 });
+  if (hasStaff)   datasets.push({ label:'Staff',   data:fix(staff), backgroundColor:staffColor,  borderColor:staffBorder,  borderWidth:2, pointBackgroundColor:staffBorder,  pointBorderColor:'#fff', pointRadius:3 });
 
   new Chart(ctx, {
     type: 'radar',
     data: { labels, datasets },
     options: {
-      responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { position: 'top' } },
-      elements: { line: { tension: 0.2 } },
-      scales: {
-        r: {
-          suggestedMin: 0,
-          suggestedMax: 5,
-          ticks: { stepSize: 1, backdropColor: 'transparent' },
-          grid: { color: 'rgba(0,0,0,0.08)' },
-          angleLines: { color: 'rgba(0,0,0,0.08)' },
-          pointLabels: { font: { size: 12 } }
+      responsive:true, maintainAspectRatio:true,
+      plugins:{ legend:{ position:'top' } },
+      elements:{ line:{ tension:0.2 } },
+      scales:{
+        r:{
+          suggestedMin:0, suggestedMax:5,
+          ticks:{ stepSize:1, backdropColor:'transparent' },
+          grid:{ color:'rgba(0,0,0,0.08)' },
+          angleLines:{ color:'rgba(0,0,0,0.08)' },
+          pointLabels:{ font:{ size:12 } }
         }
       }
     }

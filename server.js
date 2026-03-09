@@ -467,19 +467,19 @@ app.get('/self-assessment', requireStudent, (req,res)=>{
     `).get(req.session.user.id);
   }
 
-  res.render('self-assessment', {
-    skills: SKILLS,
-    terms: TERMS,
-    latest,
-    history,
-    staffLatest,
-    latestStaffComment   // pass to view
-  });
+res.render('self-assessment', {
+  skills: SKILLS,
+  terms: TERMS,
+  latest,
+  history,
+  staffLatest,
+  latestStaffComment,
+  newForm: req.query.newForm
+});
 });
 
 app.post('/self-assessment', requireStudent, (req,res)=>{
-  const latest = db.prepare('SELECT id FROM self_assessments WHERE user_id=? ORDER BY created_at DESC LIMIT 1').get(req.session.user.id);
-  if (latest) return res.redirect('/self-assessment');
+
 
   const data = {};
   SKILLS.forEach(s => {
