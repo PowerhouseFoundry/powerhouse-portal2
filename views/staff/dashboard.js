@@ -24,6 +24,18 @@
     #staff-dash .actions form { display:inline; }
     #staff-dash .btn { padding:8px 12px; border-radius:10px; border:1px solid #d1d5db; background:#fff; cursor:pointer; text-decoration:none; display:inline-block; }
     #staff-dash .btn:hover { border-color:#10b981; color:#10b981; }
+
+    /* Small admin-only learner delete control */
+    #staff-dash .learner-name-cell { display:flex; align-items:center; gap:7px; }
+    #staff-dash .learner-delete-form { display:inline-flex; margin:0; }
+    #staff-dash .learner-delete {
+      width:20px; height:20px; padding:0; border:0; border-radius:999px;
+      background:transparent; color:#dc2626; cursor:pointer;
+      display:inline-flex; align-items:center; justify-content:center;
+      font-size:19px; line-height:1; font-weight:700;
+    }
+    #staff-dash .learner-delete:hover,
+    #staff-dash .learner-delete:focus-visible { background:#fee2e2; color:#b91c1c; outline:none; }
   </style>
 
   <div class="wrap">
@@ -50,7 +62,18 @@
             <tbody>
               <% students.forEach(s => { %>
                 <tr>
-                  <td><a href="/staff/student/<%= s.id %>"><%= s.full_name %></a></td>
+                  <td>
+                    <div class="learner-name-cell">
+                      <a href="/staff/student/<%= s.id %>"><%= s.full_name %></a>
+                      <% if (staff && staff.is_admin) { %>
+                        <form class="learner-delete-form" method="post" action="/staff/admin/student/<%= s.id %>/delete"
+                              onsubmit="return confirm('Delete this learner? This permanently removes their saved portal data and cannot be undone.')">
+                          <input type="hidden" name="return_to" value="/staff/dashboard?class_id=<%= classId %>">
+                          <button class="learner-delete" type="submit" title="Delete <%= s.full_name %>" aria-label="Delete <%= s.full_name %>">&times;</button>
+                        </form>
+                      <% } %>
+                    </div>
+                  </td>
                   <td><%= s.username %></td>
                 </tr>
               <% }) %>

@@ -1,5 +1,5 @@
 <%
-  const title  = 'Self-Assessment';
+  const title  = 'My Progress';
   const active = 'self';
 
   const cycleTerms = ['Autumn', 'Spring', 'Summer'];
@@ -25,8 +25,8 @@
 <div id="self-assessment-page">
   <style>
     /* Layout & cards */
-    #self-assessment-page .wrap { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
-    #self-assessment-page h1 { margin:.25rem 0 1rem 0; }
+    #self-assessment-page .wrap { max-width: 1100px; margin: 0 auto; padding: 30px 16px 46px; }
+    #self-assessment-page h1 { margin:0 0 .45rem 0; }
     #self-assessment-page .card {
       background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:14px;
     }
@@ -98,7 +98,9 @@
   </style>
 
   <div class="wrap">
-    <h1>Self-Assessment</h1>
+    <span class="eyebrow">MY EMPLOYABILITY PATHWAY</span>
+    <h1>My Progress</h1>
+    <p class="muted" style="margin:0 0 1.25rem; max-width:760px;">Review your workplace skills, compare feedback and set your next target.</p>
 
     <div class="grid-2">
 

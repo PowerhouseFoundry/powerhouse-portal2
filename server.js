@@ -287,7 +287,9 @@ if (!colExists('job_applications','cv_path')) {
 
 /* job_adverts columns used by the jobs page */
 if (!colExists('job_adverts','created_at')) {
-  db.exec(`ALTER TABLE job_adverts ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`);
+  // SQLite does not allow a non-constant default when adding a column.
+  // Add the column first, then safely backfill existing adverts.
+  db.exec(`ALTER TABLE job_adverts ADD COLUMN created_at TEXT`);
   db.exec(`UPDATE job_adverts
            SET created_at = datetime('now')
            WHERE created_at IS NULL OR created_at = ''`);
@@ -888,7 +890,13 @@ app.post('/staff/admin/student/:id/delete', requireStaff, (req,res)=>{
   if (!req.session.staff.is_admin) return res.redirect('/staff/admin');
   const id = parseInt(req.params.id, 10);
   db.prepare('DELETE FROM users WHERE id=?').run(id);
-  res.redirect('/staff/admin');
+
+  // Dashboard delete buttons can return staff to the class they were viewing.
+  // Only allow internal staff URLs here.
+  const returnTo = (typeof req.body.return_to === 'string' && req.body.return_to.startsWith('/staff/'))
+    ? req.body.return_to
+    : '/staff/admin';
+  res.redirect(returnTo);
 });
 
 // Staff: Jobs (internal)
