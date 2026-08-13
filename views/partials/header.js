@@ -5,7 +5,7 @@
   <title><%= title %> — Powerhouse Employability</title>
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#24102f">
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20260813-2">
 </head>
 <%
   const isStaff = (typeof staff !== 'undefined' && staff);
