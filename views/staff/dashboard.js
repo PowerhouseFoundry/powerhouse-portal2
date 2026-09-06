@@ -84,7 +84,10 @@
 
       <!-- Recent applications -->
       <div class="card">
-        <h2>Recent applications</h2>
+        <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap">
+          <h2 style="margin-bottom:.5rem">Recent applications</h2>
+          <a class="btn" href="/staff/applications<%= classId ? ('?class_id=' + classId) : '' %>">Manage applications</a>
+        </div>
         <% if (!recentApps || !recentApps.length) { %>
           <p class="muted">No applications yet.</p>
         <% } else { %>
@@ -105,6 +108,7 @@
 
                     <!-- Update status -->
                     <form method="post" action="/staff/applications/<%= a.id %>/status">
+                      <input type="hidden" name="return_to" value="/staff/dashboard?class_id=<%= classId %>">
                       <select name="status" onchange="this.form.submit()">
                         <option <%= a.status==='Submitted'?'selected':'' %>>Submitted</option>
                         <option <%= a.status==='In Review'?'selected':'' %>>In Review</option>
@@ -115,6 +119,7 @@
 
                     <!-- Delete -->
                     <form method="post" action="/staff/applications/<%= a.id %>/delete" onsubmit="return confirm('Delete this application?')">
+                      <input type="hidden" name="return_to" value="/staff/dashboard?class_id=<%= classId %>">
                       <button class="btn" type="submit">Delete</button>
                     </form>
                   </td>

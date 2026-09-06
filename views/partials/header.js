@@ -34,6 +34,7 @@
         <a class="nav-link <%= active==='dashboard' ? 'is-active' : '' %>" href="/staff/dashboard">Dashboard</a>
         <a class="nav-link <%= active==='admin' ? 'is-active' : '' %>" href="/staff/admin">Admin</a>
         <a class="nav-link <%= active==='jobs' ? 'is-active' : '' %>" href="/staff/jobs">Jobs</a>
+        <a class="nav-link <%= active==='applications' ? 'is-active' : '' %>" href="/staff/applications">Applications</a>
         <a class="nav-link <%= active==='staff-training' ? 'is-active' : '' %>" href="/staff/training">Training</a>
         <form method="post" action="/staff/logout" class="nav-form">
           <button class="nav-link nav-logout" type="submit">Log out</button>

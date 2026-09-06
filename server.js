@@ -384,6 +384,55 @@ function requireStaff(req, res, next) {
   next();
 }
 
+function safeStaffReturn(req, fallback = '/staff/dashboard') {
+  const value = req.body && typeof req.body.return_to === 'string' ? req.body.return_to.trim() : '';
+  return (value.startsWith('/staff/') && !value.startsWith('//')) ? value : fallback;
+}
+
+function deleteApplicationRecords(ids) {
+  const cleanIds = [...new Set((ids || []).map(v => parseInt(v, 10)).filter(Number.isInteger))];
+  if (!cleanIds.length) return 0;
+
+  // Work in batches so this remains safe even if there are more records than SQLite's
+  // parameter limit allows in one IN (...) statement.
+  const batchSize = 400;
+  const rows = [];
+  const batches = [];
+  for (let i = 0; i < cleanIds.length; i += batchSize) batches.push(cleanIds.slice(i, i + batchSize));
+
+  batches.forEach(batch => {
+    const placeholders = batch.map(() => '?').join(',');
+    rows.push(...db.prepare(`SELECT id, cv_path FROM job_applications WHERE id IN (${placeholders})`).all(...batch));
+  });
+  if (!rows.length) return 0;
+
+  const tx = db.transaction(() => {
+    batches.forEach(batch => {
+      const placeholders = batch.map(() => '?').join(',');
+      db.prepare(`DELETE FROM job_applications WHERE id IN (${placeholders})`).run(...batch);
+    });
+  });
+  tx();
+
+  // Application CV uploads belong to the application. Remove only files inside public/uploads
+  // and only when no remaining application still references that same file.
+  rows.forEach(row => {
+    const cvPath = typeof row.cv_path === 'string' ? row.cv_path.trim() : '';
+    if (!cvPath || !cvPath.startsWith('/uploads/')) return;
+    const stillUsed = db.prepare('SELECT 1 FROM job_applications WHERE cv_path=? LIMIT 1').get(cvPath);
+    if (stillUsed) return;
+    const filename = path.basename(cvPath);
+    const fullPath = path.join(uploadDir, filename);
+    try {
+      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+    } catch (err) {
+      console.warn('Could not remove application CV file:', fullPath, err.message);
+    }
+  });
+
+  return rows.length;
+}
+
 // ---------- Constants ----------
 const SKILLS = [
   { key: 'timekeeping',            name: 'Timekeeping' },
@@ -902,8 +951,19 @@ app.get('/staff/admin', requireStaff, (req,res)=>{
   }
 
   const staff = db.prepare('SELECT id, username, full_name, is_admin FROM staff_users ORDER BY full_name').all();
+  const assessmentCounts = {
+    workplace: db.prepare('SELECT COUNT(*) AS c FROM self_assessments').get().c,
+    practical: db.prepare('SELECT COUNT(*) AS c FROM practical_self_assessments').get().c,
+    staffScores: db.prepare('SELECT COUNT(*) AS c FROM staff_assessments').get().c
+  };
+  const applicationCount = db.prepare('SELECT COUNT(*) AS c FROM job_applications').get().c;
 
-  res.render('staff/admin', { classes, classId, students, staff, active: 'admin' });
+  res.render('staff/admin', {
+    classes, classId, students, staff, assessmentCounts, applicationCount,
+    reset: req.query.reset || '',
+    resetError: req.query.reset_error || '',
+    active: 'admin'
+  });
 });
 
 // Admin ops
@@ -967,6 +1027,25 @@ app.post('/staff/admin/student/:id/delete', requireStaff, (req,res)=>{
   res.redirect(returnTo);
 });
 
+
+// Admin: clear assessment records for all learners without touching accounts or staff comments.
+app.post('/staff/admin/clear-assessments', requireStaff, (req,res)=>{
+  if (!req.session.staff.is_admin) return res.redirect('/staff/dashboard');
+  const confirmation = (req.body && typeof req.body.confirmation === 'string') ? req.body.confirmation.trim() : '';
+  if (confirmation !== 'CLEAR ASSESSMENTS') {
+    return res.redirect('/staff/admin?reset_error=assessment-confirmation');
+  }
+
+  const clearAssessments = db.transaction(() => {
+    db.prepare('DELETE FROM self_assessments').run();
+    db.prepare('DELETE FROM practical_self_assessments').run();
+    db.prepare('DELETE FROM staff_assessments').run();
+  });
+  clearAssessments();
+
+  res.redirect('/staff/admin?reset=assessments');
+});
+
 // Staff: Jobs (internal)
 // Staff: Jobs (internal) — now shows job_adverts so students see the same list
 app.get('/staff/jobs', requireStaff, (req,res)=>{
@@ -1000,17 +1079,80 @@ app.post('/staff/jobs/:id/delete', requireStaff, (req,res)=>{
   res.redirect('/staff/jobs');
 });
 
+// Staff: manage all applications, including multi-select deletion.
+app.get('/staff/applications', requireStaff, (req,res)=>{
+  const classes = db.prepare('SELECT * FROM classes ORDER BY name').all();
+  const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
+  const status = ['Submitted','In Review','Accepted','Declined'].includes(req.query.status) ? req.query.status : '';
+
+  const where = [];
+  const params = [];
+  if (classId) {
+    where.push('EXISTS (SELECT 1 FROM student_classes sc WHERE sc.student_id = u.id AND sc.class_id = ?)');
+    params.push(classId);
+  }
+  if (status) {
+    where.push('ja.status = ?');
+    params.push(status);
+  }
+
+  const applications = db.prepare(`
+    SELECT ja.*,
+           u.full_name AS student_name,
+           u.username AS student_username,
+           a.title AS advert_title
+    FROM job_applications ja
+    JOIN users u ON u.id = ja.user_id
+    LEFT JOIN job_adverts a ON a.id = ja.advert_id
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY datetime(ja.created_at) DESC, ja.id DESC
+  `).all(...params);
+
+  const totalCount = db.prepare('SELECT COUNT(*) AS c FROM job_applications').get().c;
+  res.render('staff/applications', {
+    applications,
+    classes,
+    classId,
+    status,
+    totalCount,
+    active: 'applications',
+    staff: req.session.staff,
+    deleted: req.query.deleted || '',
+    error: req.query.error || ''
+  });
+});
+
+app.post('/staff/applications/bulk-delete', requireStaff, (req,res)=>{
+  const raw = req.body ? req.body.application_ids : [];
+  const ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  if (!ids.length) return res.redirect('/staff/applications?error=select');
+  const deleted = deleteApplicationRecords(ids);
+  res.redirect(`/staff/applications?deleted=${deleted}`);
+});
+
+app.post('/staff/applications/delete-all', requireStaff, (req,res)=>{
+  if (!req.session.staff.is_admin) return res.redirect('/staff/applications?error=admin');
+  const confirmation = (req.body && typeof req.body.confirmation === 'string') ? req.body.confirmation.trim() : '';
+  if (confirmation !== 'DELETE ALL APPLICATIONS') {
+    return res.redirect('/staff/applications?error=confirmation');
+  }
+  const ids = db.prepare('SELECT id FROM job_applications').all().map(r => r.id);
+  const deleted = deleteApplicationRecords(ids);
+  res.redirect(`/staff/applications?deleted=${deleted}`);
+});
+
 app.post('/staff/applications/:id/status', requireStaff, (req,res)=>{
   const id = parseInt(req.params.id, 10);
   const { status } = req.body;
-  if (!['Submitted','In Review','Accepted','Declined'].includes(status)) return res.redirect('/staff/dashboard');
+  const returnTo = safeStaffReturn(req, '/staff/dashboard');
+  if (!['Submitted','In Review','Accepted','Declined'].includes(status)) return res.redirect(returnTo);
   db.prepare('UPDATE job_applications SET status=? WHERE id=?').run(status, id);
-  res.redirect('/staff/dashboard');
+  res.redirect(returnTo);
 });
 app.post('/staff/applications/:id/delete', requireStaff, (req,res)=>{
   const id = parseInt(req.params.id, 10);
-  db.prepare('DELETE FROM job_applications WHERE id=?').run(id);
-  res.redirect('/staff/dashboard');
+  deleteApplicationRecords([id]);
+  res.redirect(safeStaffReturn(req, '/staff/dashboard'));
 });
 // View a single job application (teacher side)
 app.get('/staff/applications/:id', requireStaff, (req, res) => {
@@ -1018,6 +1160,7 @@ app.get('/staff/applications/:id', requireStaff, (req, res) => {
   const appRow = db.prepare(`
     SELECT ja.*,
            u.full_name AS student_name,
+           u.username  AS student_username,
            a.title      AS advert_title
     FROM job_applications ja
     JOIN users u       ON u.id = ja.user_id
@@ -1028,7 +1171,7 @@ app.get('/staff/applications/:id', requireStaff, (req, res) => {
   if (!appRow) return res.status(404).render('404');
 
   // pass active:'jobs' if you want the Jobs tab highlighted in the header
-  res.render('staff/application', { app: appRow, staff: req.session.staff, active: 'jobs' });
+  res.render('staff/application', { app: appRow, staff: req.session.staff, active: 'applications' });
 });
 
 

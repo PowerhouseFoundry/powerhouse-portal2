@@ -29,6 +29,7 @@
     <% } %>
 
     <form method="post" action="/staff/applications/<%= app.id %>/status" style="margin-top:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <input type="hidden" name="return_to" value="/staff/applications/<%= app.id %>">
       <label for="status"><strong>Update status:</strong></label>
       <select id="status" name="status">
         <option <%= app.status==='Submitted'?'selected':'' %>>Submitted</option>
@@ -42,10 +43,11 @@
     <form method="post" action="/staff/applications/<%= app.id %>/delete"
           onsubmit="return confirm('Delete this application? This cannot be undone.')"
           style="margin-top:12px">
+      <input type="hidden" name="return_to" value="/staff/applications">
       <button class="btn" type="submit" style="background:#ef4444;border-color:#ef4444">Delete</button>
     </form>
 
-    <p style="margin-top:16px"><a href="/staff/dashboard">&larr; Back to dashboard</a></p>
+    <p style="margin-top:16px"><a href="/staff/applications">&larr; Back to applications</a></p>
   </div>
 </div>
 

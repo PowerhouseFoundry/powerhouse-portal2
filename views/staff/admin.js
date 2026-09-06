@@ -61,6 +61,19 @@
     /* Layout helpers */
     #staff-admin .vspace { margin-top:.5rem; }
     #staff-admin .section-gap { margin-top:1rem; }
+    #staff-admin .danger-card { border-color:#fecaca; background:#fffafa; }
+    #staff-admin .danger-card h2 { color:#991b1b; margin-bottom:.35rem; }
+    #staff-admin .danger-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    #staff-admin .danger-box { border:1px solid #fecaca; border-radius:12px; padding:14px; background:#fff; }
+    #staff-admin .danger-box h3 { margin:0 0 .35rem; }
+    #staff-admin .danger-btn { background:#b91c1c; border-color:#b91c1c; }
+    #staff-admin .danger-btn:hover { background:#991b1b; border-color:#991b1b; }
+    #staff-admin .count-row { display:flex;gap:8px;flex-wrap:wrap;margin:.6rem 0; }
+    #staff-admin .count-pill { background:#f3f4f6;border-radius:999px;padding:5px 9px;font-size:.88rem;color:#374151; }
+    #staff-admin .confirm-input { margin:.5rem 0; }
+    #staff-admin .success-note { background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:10px;padding:10px 12px; }
+    #staff-admin .error-note { background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;border-radius:10px;padding:10px 12px; }
+    @media(max-width:800px){ #staff-admin .danger-grid{grid-template-columns:1fr;} }
   </style>
 
   <div class="wrap">
@@ -171,6 +184,39 @@
             <% }) %>
           </tbody>
         </table>
+      </div>
+
+      <!-- Data management -->
+      <div class="card danger-card">
+        <h2>Data management</h2>
+        <p class="muted">Use these controls between assessment cycles or when you need to clear practice application records. Learner accounts and training progress are not removed.</p>
+
+        <% if (reset === 'assessments') { %><div class="success-note" style="margin-bottom:12px">All learner self-assessments and staff assessment scores have been cleared.</div><% } %>
+        <% if (resetError === 'assessment-confirmation') { %><div class="error-note" style="margin-bottom:12px">The confirmation text did not match. No assessment records were deleted.</div><% } %>
+
+        <div class="danger-grid">
+          <div class="danger-box">
+            <h3>Clear all assessment scores</h3>
+            <p class="muted">Deletes every learner's transferable-skills self-assessments, practical job-skills self-assessments and staff assessment scores.</p>
+            <div class="count-row">
+              <span class="count-pill"><strong><%= assessmentCounts ? assessmentCounts.workplace : 0 %></strong> workplace</span>
+              <span class="count-pill"><strong><%= assessmentCounts ? assessmentCounts.practical : 0 %></strong> practical</span>
+              <span class="count-pill"><strong><%= assessmentCounts ? assessmentCounts.staffScores : 0 %></strong> staff scores</span>
+            </div>
+            <p style="font-size:.9rem"><strong>This does not delete staff comments, learner accounts, CV data, jobs or training progress.</strong></p>
+            <form method="post" action="/staff/admin/clear-assessments" onsubmit="return confirm('Clear ALL learner self-assessments and staff assessment scores? This cannot be undone.')">
+              <label for="assessment-confirmation">Type <strong>CLEAR ASSESSMENTS</strong> to confirm</label>
+              <input class="confirm-input" id="assessment-confirmation" type="text" name="confirmation" autocomplete="off" required placeholder="CLEAR ASSESSMENTS">
+              <button class="btn danger-btn" type="submit">Clear all assessment scores</button>
+            </form>
+          </div>
+
+          <div class="danger-box">
+            <h3>Job applications</h3>
+            <p class="muted">There are currently <strong><%= applicationCount || 0 %></strong> saved job applications. Open the application manager to select several applications with checkboxes or delete all.</p>
+            <a class="btn" href="/staff/applications">Manage job applications</a>
+          </div>
+        </div>
       </div>
     </div>
   </div>
