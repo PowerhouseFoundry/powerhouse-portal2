@@ -66,6 +66,19 @@
     .vspace-s { margin-top:.5rem; }
     .vspace { margin-top:.75rem; }
     .vspace-l { margin-top:1rem; }
+    .practical-summary { display:grid; grid-template-columns:180px 1fr; gap:12px; align-items:stretch; }
+    .practical-score { border-radius:12px; background:#f5f3ff; border:1px solid #ddd6fe; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:16px; }
+    .practical-score strong { font-size:2.3rem; color:#5b21b6; line-height:1; }
+    .practical-cats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+    .practical-cat { border:1px solid #e5e7eb; border-radius:10px; padding:10px; }
+    .practical-track { height:8px; border-radius:999px; overflow:hidden; background:#e5e7eb; margin-top:7px; }
+    .practical-fill { height:100%; background:#6d28d9; border-radius:999px; }
+    .support-badge { display:inline-block; padding:4px 8px; border-radius:999px; font-size:.8rem; font-weight:700; }
+    .support-1 { background:#fee2e2; color:#991b1b; }
+    .support-2 { background:#ffedd5; color:#9a3412; }
+    .support-3 { background:#fef3c7; color:#92400e; }
+    .support-4 { background:#dcfce7; color:#166534; }
+    @media(max-width:720px){ .practical-summary{grid-template-columns:1fr;} .practical-cats{grid-template-columns:1fr;} }
   </style>
 
   <div class="wrap">
@@ -298,6 +311,54 @@
             <% }) %>
           </tbody>
         </table>
+      <% } %>
+    </div>
+
+    <div class="vspace"></div>
+
+    <!-- Practical job skills -->
+    <div class="card">
+      <h2 style="margin-top:0">Practical job skills</h2>
+      <% const pRows = (typeof practicalRows !== 'undefined' && Array.isArray(practicalRows)) ? practicalRows : [];
+         const pSkills = (typeof practicalSkills !== 'undefined' && Array.isArray(practicalSkills)) ? practicalSkills : [];
+         const pLatest = pRows[0] || null;
+         const pCategories = [...new Set(pSkills.map(s => s.category))];
+         const pAverage = (obj, items) => { const vals=items.map(i=>Number(obj[i.key])).filter(v=>v>=1&&v<=4); return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0; };
+         let pObj={}; try{ if(pLatest) pObj=JSON.parse(pLatest.skills_json||'{}'); }catch(e){};
+         const pLabel = v => Number(v)>=4?'On my own':Number(v)>=3?'With some help':Number(v)>=2?'With lots of help':'Not yet';
+      %>
+      <% if (!pLatest) { %>
+        <p class="muted">This learner has not completed the practical job skills questionnaire yet.</p>
+      <% } else { const overall=pAverage(pObj,pSkills); const overallPc=Math.round(((overall-1)/3)*100); %>
+        <p class="muted"><span class="pill"><%= pLatest.term || '—' %></span><span style="margin-left:8px;"><%= new Date(pLatest.created_at).toLocaleDateString('en-GB') %></span></p>
+        <div class="practical-summary">
+          <div class="practical-score"><strong><%= overallPc %>%</strong><span style="font-weight:700; margin-top:6px;">independence snapshot</span></div>
+          <div class="practical-cats">
+            <% pCategories.forEach(function(cat){ const items=pSkills.filter(s=>s.category===cat); const pc=Math.round(((pAverage(pObj,items)-1)/3)*100); %>
+              <div class="practical-cat"><div style="display:flex;justify-content:space-between;gap:8px;"><strong><%= cat %></strong><span><%= pc %>%</span></div><div class="practical-track"><div class="practical-fill" style="width:<%= pc %>%"></div></div></div>
+            <% }) %>
+          </div>
+        </div>
+        <% if (pLatest.target) { %><div class="vspace"><strong>Learner's next skill:</strong> <span class="muted"><%= pLatest.target %></span></div><% } %>
+        <table class="vspace">
+          <thead><tr><th>Skill</th><th style="width:180px;">Learner response</th></tr></thead>
+          <tbody>
+            <% pSkills.forEach(function(sk){ const v=Number(pObj[sk.key]||0); %>
+              <tr><td><strong><%= sk.name %></strong><div class="muted" style="font-size:.86rem; margin-top:2px;"><%= sk.help %></div></td><td><span class="support-badge support-<%= v || 1 %>"><%= pLabel(v) %></span></td></tr>
+            <% }) %>
+          </tbody>
+        </table>
+        <% if (pRows.length > 1) { %>
+          <h3 class="vspace" style="margin-bottom:.4rem;">Previous practical assessments</h3>
+          <table>
+            <thead><tr><th>Date</th><th>Assessment point</th><th>Snapshot</th><th>Target</th></tr></thead>
+            <tbody>
+              <% pRows.slice(1).forEach(function(r){ let ro={}; try{ro=JSON.parse(r.skills_json||'{}')}catch(e){}; const pc=Math.round(((pAverage(ro,pSkills)-1)/3)*100); %>
+                <tr><td><%= new Date(r.created_at).toLocaleDateString('en-GB') %></td><td><span class="pill"><%= r.term || '—' %></span></td><td><strong><%= pc %>%</strong></td><td class="muted"><%= r.target || '—' %></td></tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
       <% } %>
     </div>
 
