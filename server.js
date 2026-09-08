@@ -188,16 +188,6 @@ db.exec(`
     FOREIGN KEY (staff_id) REFERENCES staff_users(id) ON DELETE CASCADE
   );
 
-  CREATE TABLE IF NOT EXISTS practical_self_assessments (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    created_at TEXT DEFAULT (datetime('now')),
-    term TEXT DEFAULT '',
-    skills_json TEXT NOT NULL,
-    target TEXT DEFAULT '',
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
   CREATE TABLE IF NOT EXISTS cv_data (
   user_id INTEGER PRIMARY KEY,
   full_name TEXT DEFAULT '',
@@ -266,8 +256,12 @@ db.exec(`
     user_id INTEGER NOT NULL,
     advert_id INTEGER,
     created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
     employer TEXT,
     role TEXT,
+    applicant_name TEXT DEFAULT '',
+    applicant_email TEXT DEFAULT '',
+    statement TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     status TEXT DEFAULT 'Submitted',
     cv_path TEXT DEFAULT '',
@@ -293,6 +287,23 @@ if (!colExists('self_assessments','target')) {
 
 if (!colExists('job_applications','cv_path')) {
   db.exec(`ALTER TABLE job_applications ADD COLUMN cv_path TEXT DEFAULT ''`);
+}
+if (!colExists('job_applications','applicant_name')) {
+  db.exec(`ALTER TABLE job_applications ADD COLUMN applicant_name TEXT DEFAULT ''`);
+}
+if (!colExists('job_applications','applicant_email')) {
+  db.exec(`ALTER TABLE job_applications ADD COLUMN applicant_email TEXT DEFAULT ''`);
+}
+if (!colExists('job_applications','statement')) {
+  db.exec(`ALTER TABLE job_applications ADD COLUMN statement TEXT DEFAULT ''`);
+}
+if (!colExists('job_applications','updated_at')) {
+  // Keep this migration compatible with SQLite versions that reject
+  // non-constant defaults on ALTER TABLE.
+  db.exec(`ALTER TABLE job_applications ADD COLUMN updated_at TEXT`);
+  db.exec(`UPDATE job_applications
+           SET updated_at = COALESCE(NULLIF(created_at, ''), datetime('now'))
+           WHERE updated_at IS NULL OR updated_at = ''`);
 }
 
 /* job_adverts columns used by the jobs page */
@@ -372,6 +383,44 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// Job application drafts are kept for 30 days from the date they were started.
+// This allows learners to continue next session without leaving old drafts forever.
+const APPLICATION_DRAFT_DAYS = 30;
+
+function safeDeleteUploadedFile(publicPath) {
+  if (!publicPath || !publicPath.startsWith('/uploads/')) return;
+  const filename = path.basename(publicPath);
+  const fullPath = path.join(uploadDir, filename);
+  try {
+    if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
+  } catch (err) {
+    console.warn('Could not remove application upload:', err.message);
+  }
+}
+
+function cleanupExpiredApplicationDrafts(userId) {
+  const stale = db.prepare(`
+    SELECT id, cv_path
+    FROM job_applications
+    WHERE user_id = ?
+      AND status = 'Draft'
+      AND datetime(COALESCE(NULLIF(created_at,''), '1970-01-01')) <= datetime('now', '-${APPLICATION_DRAFT_DAYS} days')
+  `).all(userId);
+
+  if (!stale.length) return;
+
+  const del = db.prepare(`DELETE FROM job_applications WHERE id=? AND user_id=? AND status='Draft'`);
+  const tx = db.transaction((rows) => {
+    rows.forEach(row => del.run(row.id, userId));
+  });
+  tx(stale);
+  stale.forEach(row => safeDeleteUploadedFile(row.cv_path));
+}
+
+function buildApplicationNotes(fullName, email, statement) {
+  return `Applicant: ${fullName || ''} ${email ? `<${email}>` : ''}\n\nStatement:\n${statement || ''}`;
+}
+
 // ---------- Auth helpers ----------
 function requireStudent(req, res, next) {
   if (!req.session.user) return res.redirect('/login');
@@ -384,55 +433,6 @@ function requireStaff(req, res, next) {
   next();
 }
 
-function safeStaffReturn(req, fallback = '/staff/dashboard') {
-  const value = req.body && typeof req.body.return_to === 'string' ? req.body.return_to.trim() : '';
-  return (value.startsWith('/staff/') && !value.startsWith('//')) ? value : fallback;
-}
-
-function deleteApplicationRecords(ids) {
-  const cleanIds = [...new Set((ids || []).map(v => parseInt(v, 10)).filter(Number.isInteger))];
-  if (!cleanIds.length) return 0;
-
-  // Work in batches so this remains safe even if there are more records than SQLite's
-  // parameter limit allows in one IN (...) statement.
-  const batchSize = 400;
-  const rows = [];
-  const batches = [];
-  for (let i = 0; i < cleanIds.length; i += batchSize) batches.push(cleanIds.slice(i, i + batchSize));
-
-  batches.forEach(batch => {
-    const placeholders = batch.map(() => '?').join(',');
-    rows.push(...db.prepare(`SELECT id, cv_path FROM job_applications WHERE id IN (${placeholders})`).all(...batch));
-  });
-  if (!rows.length) return 0;
-
-  const tx = db.transaction(() => {
-    batches.forEach(batch => {
-      const placeholders = batch.map(() => '?').join(',');
-      db.prepare(`DELETE FROM job_applications WHERE id IN (${placeholders})`).run(...batch);
-    });
-  });
-  tx();
-
-  // Application CV uploads belong to the application. Remove only files inside public/uploads
-  // and only when no remaining application still references that same file.
-  rows.forEach(row => {
-    const cvPath = typeof row.cv_path === 'string' ? row.cv_path.trim() : '';
-    if (!cvPath || !cvPath.startsWith('/uploads/')) return;
-    const stillUsed = db.prepare('SELECT 1 FROM job_applications WHERE cv_path=? LIMIT 1').get(cvPath);
-    if (stillUsed) return;
-    const filename = path.basename(cvPath);
-    const fullPath = path.join(uploadDir, filename);
-    try {
-      if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
-    } catch (err) {
-      console.warn('Could not remove application CV file:', fullPath, err.message);
-    }
-  });
-
-  return rows.length;
-}
-
 // ---------- Constants ----------
 const SKILLS = [
   { key: 'timekeeping',            name: 'Timekeeping' },
@@ -443,34 +443,6 @@ const SKILLS = [
   { key: 'customer_service',       name: 'Customer Service' }
 ];
 const TERMS = ['Autumn','Spring','Summer'];
-const PRACTICAL_SKILLS = [
-  { key:'count_money',        name:'Count money correctly',                    help:'Count coins and notes and check how much money I have.', category:'Money & customers' },
-  { key:'give_change',        name:'Give the correct change',                  help:'Work out and give back the right amount of change after a cash payment.', category:'Money & customers' },
-  { key:'use_till',           name:'Use a till',                               help:'Find items, enter an order and complete a sale on a till.', category:'Money & customers' },
-  { key:'card_payment',       name:'Take a card payment',                      help:'Use a card machine correctly for chip and PIN or contactless payments.', category:'Money & customers' },
-  { key:'speak_customer',     name:'Speak to a customer',                      help:'Greet them, listen to what they need, answer simple questions and speak politely.', category:'Money & customers' },
-  { key:'tell_time',          name:'Tell the time',                            help:'Read the time on both analogue and digital clocks.', category:'Time & work routine' },
-  { key:'arrive_on_time',     name:'Arrive at work on time',                   help:'Know what time I need to start and get there before my shift begins.', category:'Time & work routine' },
-  { key:'work_time_limit',    name:'Work to a time limit',                     help:'Know how long I have for a task and try to finish it in that time.', category:'Time & work routine' },
-  { key:'breaks_on_time',     name:'Take breaks at the correct time',          help:'Know when my break starts, how long it lasts and return to work on time.', category:'Time & work routine' },
-  { key:'check_rota',         name:'Check my work rota',                       help:'Find out what days I am working and what time my shift starts and finishes.', category:'Time & work routine' },
-  { key:'ready_for_work',     name:'Get ready for work',                       help:'Prepare my uniform, ID, lunch and anything else I need before leaving home.', category:'Getting myself to work' },
-  { key:'uniform_ppe',        name:'Wear the correct uniform or PPE',          help:'Choose the right clothes, shoes, apron, gloves or safety equipment for the job.', category:'Getting myself to work' },
-  { key:'travel_to_work',     name:'Travel to work',                           help:'Plan my journey, leave at the right time and get to work safely.', category:'Getting myself to work' },
-  { key:'clock_in_out',       name:'Clock in and out',                         help:'Remember to record when I start work and when I finish.', category:'Getting myself to work' },
-  { key:'follow_task_list',   name:'Follow a task list',                       help:'Look at a list of jobs, complete them in order and mark them when finished.', category:'Doing the job' },
-  { key:'start_without_prompt',name:'Start a familiar job without being reminded',help:'Begin a task I already know how to do without waiting for someone to tell me.', category:'Doing the job' },
-  { key:'tidy_work_area',     name:'Keep my work area tidy',                   help:'Put equipment back in the correct place and keep my workspace organised.', category:'Doing the job' },
-  { key:'clean_work_area',    name:'Clean my work area properly',              help:'Use the correct cleaning equipment and leave the area ready for the next person.', category:'Doing the job' },
-  { key:'check_stock',        name:'Check stock and refill items',             help:'Notice when something is running low and replace it or tell a member of staff.', category:'Doing the job' },
-  { key:'ask_for_help',       name:'Ask for help when there is a problem',     help:'Explain what has gone wrong and ask the correct person for support.', category:'Doing the job' }
-];
-const PRACTICAL_SCALE = [
-  { value:1, label:'Not yet' },
-  { value:2, label:'With lots of help' },
-  { value:3, label:'With some help' },
-  { value:4, label:'On my own' }
-];
 const AREAS = ['Kitchen','Warehouse','Bar','Restaurant','Barista','Office'];
 
 /* =========================
@@ -536,9 +508,6 @@ app.get('/self-assessment', requireStudent, (req,res)=>{
   const latest = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC LIMIT 1').get(req.session.user.id);
   const history = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC').all(req.session.user.id);
   const staffLatest = db.prepare('SELECT * FROM staff_assessments WHERE student_id=? ORDER BY created_at DESC LIMIT 1').get(req.session.user.id);
-  const practicalHistory = db.prepare('SELECT * FROM practical_self_assessments WHERE user_id=? ORDER BY created_at DESC').all(req.session.user.id);
-  const practicalLatest = practicalHistory[0] || null;
-  const practicalPrevious = practicalHistory[1] || null;
 
   // NEW: latest staff comment (prefer comment that matches student's latest term; otherwise latest overall)
   let latestStaffComment = null;
@@ -566,34 +535,8 @@ res.render('self-assessment', {
   history,
   staffLatest,
   latestStaffComment,
-  newForm: req.query.newForm,
-  panel: req.query.panel || 'workplace',
-  practicalSkills: PRACTICAL_SKILLS,
-  practicalScale: PRACTICAL_SCALE,
-  practicalLatest,
-  practicalPrevious,
-  practicalHistory,
-  newPractical: req.query.newPractical
+  newForm: req.query.newForm
 });
-});
-
-app.post('/self-assessment/practical', requireStudent, (req,res)=>{
-  const data = {};
-  PRACTICAL_SKILLS.forEach(s => {
-    const v = parseInt(req.body[s.key], 10);
-    data[s.key] = isNaN(v) ? null : Math.min(4, Math.max(1, v));
-  });
-  const term = req.body.term || '';
-  const target = (req.body.target || '').trim();
-  db.prepare('INSERT INTO practical_self_assessments (user_id, term, skills_json, target) VALUES (?,?,?,?)')
-    .run(req.session.user.id, term, JSON.stringify(data), target);
-  res.redirect('/self-assessment?panel=practical');
-});
-
-app.post('/self-assessment/practical/:id/delete', requireStudent, (req,res)=>{
-  const id = parseInt(req.params.id, 10);
-  db.prepare('DELETE FROM practical_self_assessments WHERE id=? AND user_id=?').run(id, req.session.user.id);
-  res.redirect('/self-assessment?panel=practical');
 });
 
 app.post('/self-assessment', requireStudent, (req,res)=>{
@@ -673,28 +616,139 @@ app.post('/training', requireStudent, (req, res) => {
 
 // Job board / Apply (student)
 app.get('/job-board', requireStudent, (req,res)=>{
+  cleanupExpiredApplicationDrafts(req.session.user.id);
+
   const adverts = db.prepare('SELECT * FROM job_adverts ORDER BY closing_date DESC, id DESC').all();
-  const myApps = db.prepare('SELECT advert_id, status, created_at FROM job_applications WHERE user_id=?')
-    .all(req.session.user.id);
+  const myApps = db.prepare(`
+    SELECT advert_id, status, created_at, updated_at,
+           CASE WHEN status='Draft' THEN datetime(created_at, '+${APPLICATION_DRAFT_DAYS} days') ELSE NULL END AS draft_expires_at
+    FROM job_applications
+    WHERE user_id=?
+    ORDER BY id ASC
+  `).all(req.session.user.id);
   const appMap = new Map(myApps.map(a => [a.advert_id, a]));
-  res.render('job-board', { adverts, appMap });
+  res.render('job-board', { adverts, appMap, draftDays: APPLICATION_DRAFT_DAYS });
 });
+
 app.get('/apply/:id', requireStudent, (req,res)=>{
+  cleanupExpiredApplicationDrafts(req.session.user.id);
+
   const ad = db.prepare('SELECT * FROM job_adverts WHERE id=?').get(req.params.id);
   if (!ad) return res.redirect('/job-board');
-  const existing = db.prepare('SELECT * FROM job_applications WHERE user_id=? AND advert_id=? ORDER BY created_at DESC LIMIT 1')
-    .get(req.session.user.id, ad.id);
-  res.render('apply', { ad, existing });
+
+  const submitted = db.prepare(`
+    SELECT * FROM job_applications
+    WHERE user_id=? AND advert_id=? AND status <> 'Draft'
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `).get(req.session.user.id, ad.id);
+
+  const draft = submitted ? null : db.prepare(`
+    SELECT *, datetime(created_at, '+${APPLICATION_DRAFT_DAYS} days') AS draft_expires_at
+    FROM job_applications
+    WHERE user_id=? AND advert_id=? AND status='Draft'
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `).get(req.session.user.id, ad.id);
+
+  res.render('apply', {
+    ad, draft, submitted, draftDays: APPLICATION_DRAFT_DAYS,
+    saved: req.query.saved === '1',
+    incomplete: req.query.incomplete === '1',
+    fresh: req.query.new === '1'
+  });
 });
+
 app.post('/apply/:id', requireStudent, upload.single('cv_file'), (req,res)=>{
+  cleanupExpiredApplicationDrafts(req.session.user.id);
+
   const ad = db.prepare('SELECT * FROM job_adverts WHERE id=?').get(req.params.id);
+  if (!ad) {
+    if (req.file) safeDeleteUploadedFile('/uploads/' + path.basename(req.file.path));
+    return res.redirect('/job-board');
+  }
+
+  const submitted = db.prepare(`
+    SELECT id FROM job_applications
+    WHERE user_id=? AND advert_id=? AND status <> 'Draft'
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `).get(req.session.user.id, ad.id);
+  if (submitted) {
+    if (req.file) safeDeleteUploadedFile('/uploads/' + path.basename(req.file.path));
+    return res.redirect('/job-board');
+  }
+
+  const action = req.body.action === 'save' ? 'save' : 'submit';
+  const fullName = String(req.body.full_name || '').trim();
+  const email = String(req.body.email || '').trim();
+  const statement = String(req.body.why || '').trim();
+  const notes = buildApplicationNotes(fullName, email, statement);
+
+  const draft = db.prepare(`
+    SELECT * FROM job_applications
+    WHERE user_id=? AND advert_id=? AND status='Draft'
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `).get(req.session.user.id, ad.id);
+
+  let cvPath = draft?.cv_path || '';
+  if (req.file) {
+    const newPath = '/uploads/' + path.basename(req.file.path);
+    if (cvPath && cvPath !== newPath) safeDeleteUploadedFile(cvPath);
+    cvPath = newPath;
+  }
+
+  // If Submit was pressed with missing required sections, keep the learner's work
+  // as a draft instead of losing it.
+  const isComplete = !!(fullName && email && statement);
+  const finalAction = (action === 'submit' && isComplete) ? 'submit' : 'save';
+
+  if (draft) {
+    if (finalAction === 'submit') {
+      db.prepare(`
+        UPDATE job_applications
+        SET employer=?, role=?, applicant_name=?, applicant_email=?, statement=?, notes=?,
+            status='Submitted', cv_path=?, updated_at=datetime('now'), created_at=datetime('now')
+        WHERE id=? AND user_id=? AND status='Draft'
+      `).run(ad.employer, ad.title, fullName, email, statement, notes, cvPath, draft.id, req.session.user.id);
+    } else {
+      db.prepare(`
+        UPDATE job_applications
+        SET employer=?, role=?, applicant_name=?, applicant_email=?, statement=?, notes=?,
+            cv_path=?, updated_at=datetime('now')
+        WHERE id=? AND user_id=? AND status='Draft'
+      `).run(ad.employer, ad.title, fullName, email, statement, notes, cvPath, draft.id, req.session.user.id);
+    }
+  } else {
+    const status = finalAction === 'submit' ? 'Submitted' : 'Draft';
+    db.prepare(`
+      INSERT INTO job_applications
+        (user_id, advert_id, employer, role, applicant_name, applicant_email, statement, notes, status, cv_path, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,datetime('now'))
+    `).run(req.session.user.id, ad.id, ad.employer, ad.title, fullName, email, statement, notes, status, cvPath);
+  }
+
+  if (finalAction === 'submit') return res.redirect('/job-board?submitted=1');
+  if (action === 'submit' && !isComplete) return res.redirect(`/apply/${ad.id}?incomplete=1`);
+  return res.redirect(`/apply/${ad.id}?saved=1`);
+});
+
+app.post('/apply/:id/start-new', requireStudent, (req,res)=>{
+  cleanupExpiredApplicationDrafts(req.session.user.id);
+
+  const ad = db.prepare('SELECT id FROM job_adverts WHERE id=?').get(req.params.id);
   if (!ad) return res.redirect('/job-board');
-  const { full_name, email, why } = req.body;
-  const cv_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  const notes = `Applicant: ${full_name||''} ${email?`<${email}>`:''}\n\nStatement:\n${why||''}`;
-  db.prepare('INSERT INTO job_applications (user_id, advert_id, employer, role, notes, status, cv_path) VALUES (?,?,?,?,?,?,?)')
-    .run(req.session.user.id, ad.id, ad.employer, ad.title, notes, 'Submitted', cv_path);
-  res.redirect('/job-board');
+
+  const draft = db.prepare(`
+    SELECT id, cv_path FROM job_applications
+    WHERE user_id=? AND advert_id=? AND status='Draft'
+    ORDER BY created_at DESC, id DESC LIMIT 1
+  `).get(req.session.user.id, ad.id);
+
+  if (draft) {
+    db.prepare(`DELETE FROM job_applications WHERE id=? AND user_id=? AND status='Draft'`)
+      .run(draft.id, req.session.user.id);
+    safeDeleteUploadedFile(draft.cv_path);
+  }
+
+  res.redirect(`/apply/${ad.id}?new=1`);
 });
 
 // CV Builder (student)
@@ -842,7 +896,7 @@ app.get('/staff/dashboard', requireStaff, (req,res)=>{
     SELECT ja.*, u.full_name, u.id AS student_id
     FROM job_applications ja
     JOIN users u ON u.id = ja.user_id
-    ${classId ? 'JOIN student_classes sc ON sc.student_id = u.id WHERE sc.class_id = ?' : ''}
+    ${classId ? "JOIN student_classes sc ON sc.student_id = u.id WHERE sc.class_id = ? AND ja.status <> 'Draft'" : "WHERE ja.status <> 'Draft'"}
     ORDER BY ja.created_at DESC
     LIMIT 20
   `).all(...(classId ? [classId] : []));
@@ -866,13 +920,12 @@ app.get('/staff/student/:id', requireStaff, (req,res)=>{
 
   const selfRows  = db.prepare('SELECT * FROM self_assessments WHERE user_id=? ORDER BY created_at DESC').all(student.id);
   const staffRows = db.prepare('SELECT * FROM staff_assessments WHERE student_id=? ORDER BY created_at DESC').all(student.id);
-  const practicalRows = db.prepare('SELECT * FROM practical_self_assessments WHERE user_id=? ORDER BY created_at DESC').all(student.id);
   const comments  = db.prepare('SELECT * FROM staff_comments WHERE student_id=? ORDER BY created_at DESC').all(student.id);
   const apps      = db.prepare(`
     SELECT ja.*, ja.role AS job_role, ja.id AS app_id, a.title AS advert_title
     FROM job_applications ja
     LEFT JOIN job_adverts a ON a.id = ja.advert_id
-    WHERE ja.user_id=?
+    WHERE ja.user_id=? AND ja.status <> 'Draft'
     ORDER BY ja.created_at DESC
   `).all(student.id);
 
@@ -885,7 +938,7 @@ app.get('/staff/student/:id', requireStaff, (req,res)=>{
   const resources = db.prepare('SELECT * FROM training_resources WHERE user_id=? ORDER BY created_at DESC')
     .all(student.id);
 
-  res.render('staff/student', { student, selfRows, staffRows, practicalRows, comments, apps, classes, inClass, latestSelf, latestStaff, skills: SKILLS, practicalSkills: PRACTICAL_SKILLS, practicalScale: PRACTICAL_SCALE, terms: TERMS, resources });
+  res.render('staff/student', { student, selfRows, staffRows, comments, apps, classes, inClass, latestSelf, latestStaff, skills: SKILLS, terms: TERMS, resources });
 });
 app.post('/staff/student/:id/assess', requireStaff, (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
@@ -951,19 +1004,8 @@ app.get('/staff/admin', requireStaff, (req,res)=>{
   }
 
   const staff = db.prepare('SELECT id, username, full_name, is_admin FROM staff_users ORDER BY full_name').all();
-  const assessmentCounts = {
-    workplace: db.prepare('SELECT COUNT(*) AS c FROM self_assessments').get().c,
-    practical: db.prepare('SELECT COUNT(*) AS c FROM practical_self_assessments').get().c,
-    staffScores: db.prepare('SELECT COUNT(*) AS c FROM staff_assessments').get().c
-  };
-  const applicationCount = db.prepare('SELECT COUNT(*) AS c FROM job_applications').get().c;
 
-  res.render('staff/admin', {
-    classes, classId, students, staff, assessmentCounts, applicationCount,
-    reset: req.query.reset || '',
-    resetError: req.query.reset_error || '',
-    active: 'admin'
-  });
+  res.render('staff/admin', { classes, classId, students, staff, active: 'admin' });
 });
 
 // Admin ops
@@ -1027,25 +1069,6 @@ app.post('/staff/admin/student/:id/delete', requireStaff, (req,res)=>{
   res.redirect(returnTo);
 });
 
-
-// Admin: clear assessment records for all learners without touching accounts or staff comments.
-app.post('/staff/admin/clear-assessments', requireStaff, (req,res)=>{
-  if (!req.session.staff.is_admin) return res.redirect('/staff/dashboard');
-  const confirmation = (req.body && typeof req.body.confirmation === 'string') ? req.body.confirmation.trim() : '';
-  if (confirmation !== 'CLEAR ASSESSMENTS') {
-    return res.redirect('/staff/admin?reset_error=assessment-confirmation');
-  }
-
-  const clearAssessments = db.transaction(() => {
-    db.prepare('DELETE FROM self_assessments').run();
-    db.prepare('DELETE FROM practical_self_assessments').run();
-    db.prepare('DELETE FROM staff_assessments').run();
-  });
-  clearAssessments();
-
-  res.redirect('/staff/admin?reset=assessments');
-});
-
 // Staff: Jobs (internal)
 // Staff: Jobs (internal) — now shows job_adverts so students see the same list
 app.get('/staff/jobs', requireStaff, (req,res)=>{
@@ -1079,80 +1102,17 @@ app.post('/staff/jobs/:id/delete', requireStaff, (req,res)=>{
   res.redirect('/staff/jobs');
 });
 
-// Staff: manage all applications, including multi-select deletion.
-app.get('/staff/applications', requireStaff, (req,res)=>{
-  const classes = db.prepare('SELECT * FROM classes ORDER BY name').all();
-  const classId = req.query.class_id ? parseInt(req.query.class_id, 10) : null;
-  const status = ['Submitted','In Review','Accepted','Declined'].includes(req.query.status) ? req.query.status : '';
-
-  const where = [];
-  const params = [];
-  if (classId) {
-    where.push('EXISTS (SELECT 1 FROM student_classes sc WHERE sc.student_id = u.id AND sc.class_id = ?)');
-    params.push(classId);
-  }
-  if (status) {
-    where.push('ja.status = ?');
-    params.push(status);
-  }
-
-  const applications = db.prepare(`
-    SELECT ja.*,
-           u.full_name AS student_name,
-           u.username AS student_username,
-           a.title AS advert_title
-    FROM job_applications ja
-    JOIN users u ON u.id = ja.user_id
-    LEFT JOIN job_adverts a ON a.id = ja.advert_id
-    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY datetime(ja.created_at) DESC, ja.id DESC
-  `).all(...params);
-
-  const totalCount = db.prepare('SELECT COUNT(*) AS c FROM job_applications').get().c;
-  res.render('staff/applications', {
-    applications,
-    classes,
-    classId,
-    status,
-    totalCount,
-    active: 'applications',
-    staff: req.session.staff,
-    deleted: req.query.deleted || '',
-    error: req.query.error || ''
-  });
-});
-
-app.post('/staff/applications/bulk-delete', requireStaff, (req,res)=>{
-  const raw = req.body ? req.body.application_ids : [];
-  const ids = Array.isArray(raw) ? raw : (raw ? [raw] : []);
-  if (!ids.length) return res.redirect('/staff/applications?error=select');
-  const deleted = deleteApplicationRecords(ids);
-  res.redirect(`/staff/applications?deleted=${deleted}`);
-});
-
-app.post('/staff/applications/delete-all', requireStaff, (req,res)=>{
-  if (!req.session.staff.is_admin) return res.redirect('/staff/applications?error=admin');
-  const confirmation = (req.body && typeof req.body.confirmation === 'string') ? req.body.confirmation.trim() : '';
-  if (confirmation !== 'DELETE ALL APPLICATIONS') {
-    return res.redirect('/staff/applications?error=confirmation');
-  }
-  const ids = db.prepare('SELECT id FROM job_applications').all().map(r => r.id);
-  const deleted = deleteApplicationRecords(ids);
-  res.redirect(`/staff/applications?deleted=${deleted}`);
-});
-
 app.post('/staff/applications/:id/status', requireStaff, (req,res)=>{
   const id = parseInt(req.params.id, 10);
   const { status } = req.body;
-  const returnTo = safeStaffReturn(req, '/staff/dashboard');
-  if (!['Submitted','In Review','Accepted','Declined'].includes(status)) return res.redirect(returnTo);
+  if (!['Submitted','In Review','Accepted','Declined'].includes(status)) return res.redirect('/staff/dashboard');
   db.prepare('UPDATE job_applications SET status=? WHERE id=?').run(status, id);
-  res.redirect(returnTo);
+  res.redirect('/staff/dashboard');
 });
 app.post('/staff/applications/:id/delete', requireStaff, (req,res)=>{
   const id = parseInt(req.params.id, 10);
-  deleteApplicationRecords([id]);
-  res.redirect(safeStaffReturn(req, '/staff/dashboard'));
+  db.prepare('DELETE FROM job_applications WHERE id=?').run(id);
+  res.redirect('/staff/dashboard');
 });
 // View a single job application (teacher side)
 app.get('/staff/applications/:id', requireStaff, (req, res) => {
@@ -1160,7 +1120,6 @@ app.get('/staff/applications/:id', requireStaff, (req, res) => {
   const appRow = db.prepare(`
     SELECT ja.*,
            u.full_name AS student_name,
-           u.username  AS student_username,
            a.title      AS advert_title
     FROM job_applications ja
     JOIN users u       ON u.id = ja.user_id
@@ -1171,7 +1130,7 @@ app.get('/staff/applications/:id', requireStaff, (req, res) => {
   if (!appRow) return res.status(404).render('404');
 
   // pass active:'jobs' if you want the Jobs tab highlighted in the header
-  res.render('staff/application', { app: appRow, staff: req.session.staff, active: 'applications' });
+  res.render('staff/application', { app: appRow, staff: req.session.staff, active: 'jobs' });
 });
 
 
