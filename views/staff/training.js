@@ -43,6 +43,13 @@
   <div class="wrap">
     <h1>Training modules</h1>
 
+    <% if (typeof resource_added !== 'undefined' && resource_added) { %>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:10px;font-weight:600;">Resource added successfully.</div>
+    <% } %>
+    <% if (typeof resource_error !== 'undefined' && resource_error) { %>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;font-weight:600;">Choose a file or enter a URL before adding the resource.</div>
+    <% } %>
+
     <!-- Add module -->
     <div class="card">
       <h2 style="margin-top:0">Add module</h2>
@@ -90,8 +97,8 @@
 
               <!-- Add resource -->
               <form method="post" action="/staff/training/modules/<%= m.key %>/resource" enctype="multipart/form-data">
-                <label>Title</label>
-                <input type="text" name="title" placeholder="e.g. Barista Basics Slides" required>
+                <label>Title <span class="muted" style="font-weight:400">(optional)</span></label>
+                <input type="text" name="title" placeholder="Leave blank to use the file name">
 
                 <label class="vspace">Area</label>
                 <select name="area">
@@ -105,7 +112,8 @@
                 <input type="text" name="url" placeholder="https://...">
 
                 <label class="vspace">Upload file (optional)</label>
-                <input type="file" name="file">
+                <input type="file" name="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.mp4,.zip">
+                <div class="muted" style="font-size:.85rem; margin-top:5px;">Choose a file, then press <strong>Add resource</strong>. If Title is blank, the file name will be used.</div>
 
                 <div class="vspace">
                   <button class="btn" type="submit">Add resource</button>

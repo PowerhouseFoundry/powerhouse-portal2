@@ -1051,7 +1051,13 @@ app.get('/staff/student/:id', requireStaff, (req,res)=>{
   const resources = db.prepare('SELECT * FROM training_resources WHERE user_id=? ORDER BY created_at DESC')
     .all(student.id);
 
-  res.render('staff/student', { student, selfRows, staffRows, practicalRows, comments, apps, classes, inClass, latestSelf, latestStaff, skills: SKILLS, practicalSkills: PRACTICAL_SKILLS, practicalScale: PRACTICAL_SCALE, terms: TERMS, resources });
+  res.render('staff/student', {
+    student, selfRows, staffRows, practicalRows, comments, apps, classes, inClass,
+    latestSelf, latestStaff, skills: SKILLS, practicalSkills: PRACTICAL_SKILLS,
+    practicalScale: PRACTICAL_SCALE, terms: TERMS, resources,
+    resource_added: req.query.resource_added === '1',
+    resource_error: req.query.resource_error || ''
+  });
 });
 app.post('/staff/student/:id/assess', requireStaff, (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
@@ -1077,12 +1083,22 @@ app.post('/staff/student/:id/comment', requireStaff, (req,res)=>{
 // Staff: add/delete per-student training resources
 app.post('/staff/student/:id/resource', requireStaff, upload.single('file'), (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
-  const { title, url } = req.body;
+  const rawTitle = String(req.body.title || '').trim();
+  const url = String(req.body.url || '').trim();
   const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  if (!title || (!url && !file_path)) return res.redirect('/staff/student/' + studentId);
+
+  // A file can be added without typing a separate title.
+  // In that case use the uploaded filename (without the extension) as the resource title.
+  const fileTitle = req.file ? path.parse(req.file.originalname).name.trim() : '';
+  const title = rawTitle || fileTitle || (url ? 'Training link' : '');
+
+  if (!title || (!url && !file_path)) {
+    return res.redirect('/staff/student/' + studentId + '?resource_error=missing');
+  }
+
   db.prepare('INSERT INTO training_resources (user_id, title, url, file_path) VALUES (?,?,?,?)')
-    .run(studentId, title, url||'', file_path);
-  res.redirect('/staff/student/' + studentId);
+    .run(studentId, title, url, file_path);
+  res.redirect('/staff/student/' + studentId + '?resource_added=1');
 });
 app.post('/staff/student/:id/resource/:rid/delete', requireStaff, (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
@@ -1356,7 +1372,11 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     if (!moduleResources[r.module_key]) moduleResources[r.module_key] = [];
     moduleResources[r.module_key].push(r);
   });
-  res.render('staff/training', { classes, modules, moduleResources, active: 'staff-training', staff: req.session.staff });
+  res.render('staff/training', {
+    classes, modules, moduleResources, active: 'staff-training', staff: req.session.staff,
+    resource_added: req.query.resource_added === '1',
+    resource_error: req.query.resource_error || ''
+  });
 });
 
 // Add module
@@ -1373,14 +1393,25 @@ app.post('/staff/training/modules', requireStaff, (req,res)=>{
 // Add resource to a module (with Area)
 app.post('/staff/training/modules/:moduleKey/resource', requireStaff, upload.single('file'), (req,res)=>{
   const moduleKey = req.params.moduleKey;
-  const { title, url, area } = req.body || {};
+  const rawTitle = String(req.body.title || '').trim();
+  const url = String(req.body.url || '').trim();
+  const area = String(req.body.area || '').trim();
   const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  if (!title || (!url && !file_path)) return res.redirect('/staff/training');
+
+  // Let staff upload a document without also having to type a title.
+  // If Title is left blank, use the original filename without its extension.
+  const fileTitle = req.file ? path.parse(req.file.originalname).name.trim() : '';
+  const title = rawTitle || fileTitle || (url ? 'Training link' : '');
+
+  if (!title || (!url && !file_path)) {
+    return res.redirect('/staff/training?resource_error=missing');
+  }
+
   db.prepare(`
     INSERT INTO training_module_resources (module_key, title, url, file_path, area, created_at)
     VALUES (?, ?, ?, ?, ?, datetime('now'))
-  `).run(moduleKey, title.trim(), (url||'').trim() || '', file_path, area||'');
-  res.redirect('/staff/training');
+  `).run(moduleKey, title, url, file_path, area);
+  res.redirect('/staff/training?resource_added=1');
 });
 
 // Delete a module resource

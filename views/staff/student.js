@@ -219,10 +219,17 @@
     <div class="card">
       <h2 style="margin-top:0">Training resources</h2>
 
+      <% if (typeof resource_added !== 'undefined' && resource_added) { %>
+        <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:10px;font-weight:600;">Resource added to this learner.</div>
+      <% } %>
+      <% if (typeof resource_error !== 'undefined' && resource_error) { %>
+        <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;font-weight:600;">Choose a file or enter a link before adding the resource.</div>
+      <% } %>
+
       <form method="post" action="/staff/student/<%= student.id %>/resource" enctype="multipart/form-data" class="grid-3">
         <div>
-          <label>Title</label>
-          <input type="text" name="title" required placeholder="e.g. Food Hygiene PPT Week 1">
+          <label>Title <span class="muted" style="font-weight:400">(optional)</span></label>
+          <input type="text" name="title" placeholder="Leave blank to use the file name">
         </div>
         <div>
           <label>Link (optional)</label>
@@ -231,6 +238,7 @@
         <div>
           <label>Upload file (optional)</label>
           <input type="file" name="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.mp4,.zip">
+          <div class="muted" style="font-size:.85rem; margin-top:5px;">If Title is blank, the uploaded file name will be used.</div>
         </div>
         <div style="grid-column: 1 / -1;">
           <button class="btn" type="submit">Add resource</button>
