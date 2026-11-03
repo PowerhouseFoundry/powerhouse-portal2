@@ -414,8 +414,33 @@ function safeDeleteUploadedFile(publicPath) {
   try {
     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath);
   } catch (err) {
-    console.warn('Could not remove application upload:', err.message);
+    console.warn('Could not remove uploaded file:', err.message);
   }
+}
+
+// Remove an uploaded file only when nothing in the portal still points to it.
+function deleteTrainingFileIfUnused(publicPath) {
+  if (!publicPath || !publicPath.startsWith('/uploads/')) return;
+  const moduleUse = db.prepare('SELECT 1 FROM training_module_resources WHERE file_path=? LIMIT 1').get(publicPath);
+  const learnerUse = db.prepare('SELECT 1 FROM training_resources WHERE file_path=? LIMIT 1').get(publicPath);
+  const applicationUse = db.prepare('SELECT 1 FROM job_applications WHERE cv_path=? LIMIT 1').get(publicPath);
+  if (!moduleUse && !learnerUse && !applicationUse) safeDeleteUploadedFile(publicPath);
+}
+
+// Remove published learner copies that came from one staff training resource.
+// Older published rows do not have a source id, so match the stable resource fields.
+function removePublishedTrainingResourceCopies(moduleKey, resource) {
+  if (!resource) return 0;
+  if (resource.file_path) {
+    return db.prepare('DELETE FROM training_resources WHERE module_key=? AND file_path=?')
+      .run(moduleKey, resource.file_path).changes;
+  }
+  if (resource.url) {
+    return db.prepare('DELETE FROM training_resources WHERE module_key=? AND url=?')
+      .run(moduleKey, resource.url).changes;
+  }
+  return db.prepare("DELETE FROM training_resources WHERE module_key=? AND title=? AND COALESCE(area,'')=COALESCE(?, '')")
+    .run(moduleKey, resource.title || '', resource.area || '').changes;
 }
 
 function cleanupExpiredApplicationDrafts(userId) {
@@ -1087,17 +1112,21 @@ app.post('/staff/student/:id/comment', requireStaff, (req,res)=>{
 // Staff: add/delete per-student training resources
 app.post('/staff/student/:id/resource', requireStaff, upload.single('file'), (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
-  const { title, url } = req.body;
+  const rawTitle = String(req.body?.title || '').trim();
+  const cleanUrl = String(req.body?.url || '').trim();
   const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  if (!title || (!url && !file_path)) return res.redirect('/staff/student/' + studentId);
+  if (!cleanUrl && !file_path) return res.redirect('/staff/student/' + studentId + '?resource_error=1');
+  const title = rawTitle || (req.file?.originalname ? req.file.originalname : cleanUrl);
   db.prepare('INSERT INTO training_resources (user_id, title, url, file_path) VALUES (?,?,?,?)')
-    .run(studentId, title, url||'', file_path);
-  res.redirect('/staff/student/' + studentId);
+    .run(studentId, title, cleanUrl, file_path);
+  res.redirect('/staff/student/' + studentId + '?resource_added=1');
 });
 app.post('/staff/student/:id/resource/:rid/delete', requireStaff, (req,res)=>{
   const studentId = parseInt(req.params.id, 10);
   const rid = parseInt(req.params.rid, 10);
+  const row = db.prepare('SELECT file_path FROM training_resources WHERE id=? AND user_id=?').get(rid, studentId);
   db.prepare('DELETE FROM training_resources WHERE id=? AND user_id=?').run(rid, studentId);
+  if (row?.file_path) deleteTrainingFileIfUnused(row.file_path);
   res.redirect('/staff/student/' + studentId);
 });
 
@@ -1366,7 +1395,18 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     if (!moduleResources[r.module_key]) moduleResources[r.module_key] = [];
     moduleResources[r.module_key].push(r);
   });
-  res.render('staff/training', { classes, modules, moduleResources, active: 'staff-training', staff: req.session.staff });
+  res.render('staff/training', {
+    classes,
+    modules,
+    moduleResources,
+    active: 'staff-training',
+    staff: req.session.staff,
+    resource_added: req.query.resource_added === '1',
+    resource_error: req.query.resource_error === '1',
+    resource_removed: req.query.resource_removed === '1',
+    class_removed: req.query.class_removed === '1',
+    published: req.query.published === '1'
+  });
 });
 
 // Add module
@@ -1380,27 +1420,53 @@ app.post('/staff/training/modules', requireStaff, (req,res)=>{
   res.redirect('/staff/training');
 });
 
-// Add resource to a module (with Area)
+// Add resource to a module. Title is optional; use the uploaded file name when blank.
 app.post('/staff/training/modules/:moduleKey/resource', requireStaff, upload.single('file'), (req,res)=>{
   const moduleKey = req.params.moduleKey;
-  const { title, url, area } = req.body || {};
+  const rawTitle = String(req.body?.title || '').trim();
+  const cleanUrl = String(req.body?.url || '').trim();
+  const area = String(req.body?.area || '').trim();
   const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  if (!title || (!url && !file_path)) return res.redirect('/staff/training');
+
+  if (!cleanUrl && !file_path) {
+    return res.redirect('/staff/training?resource_error=1');
+  }
+
+  const title = rawTitle || (req.file?.originalname ? req.file.originalname : cleanUrl);
   db.prepare(`
     INSERT INTO training_module_resources (module_key, title, url, file_path, area, created_at)
     VALUES (?, ?, ?, ?, ?, datetime('now'))
-  `).run(moduleKey, title.trim(), (url||'').trim() || '', file_path, area||'');
-  res.redirect('/staff/training');
+  `).run(moduleKey, title, cleanUrl, file_path, area);
+  res.redirect('/staff/training?resource_added=1');
 });
 
-// Delete a module resource
-app.post('/staff/training/modules/:moduleKey/resource/:id/delete', requireStaff, (req,res)=>{
+// Remove one resource from learners but keep the master resource in Staff Training.
+app.post('/staff/training/modules/:moduleKey/resource/:id/unpublish', requireStaff, (req,res)=>{
+  const moduleKey = req.params.moduleKey;
   const id = parseInt(req.params.id, 10);
-  db.prepare('DELETE FROM training_module_resources WHERE id=?').run(id);
-  res.redirect('/staff/training');
+  const resource = db.prepare('SELECT * FROM training_module_resources WHERE id=? AND module_key=?').get(id, moduleKey);
+  if (resource) removePublishedTrainingResourceCopies(moduleKey, resource);
+  res.redirect('/staff/training?resource_removed=1');
 });
 
-// Publish module resources to all students in a class (preserves Area + tracks module_key)
+// Delete a module resource and any copies already published to learners.
+app.post('/staff/training/modules/:moduleKey/resource/:id/delete', requireStaff, (req,res)=>{
+  const moduleKey = req.params.moduleKey;
+  const id = parseInt(req.params.id, 10);
+  const resource = db.prepare('SELECT * FROM training_module_resources WHERE id=? AND module_key=?').get(id, moduleKey);
+  if (resource) {
+    const tx = db.transaction(() => {
+      removePublishedTrainingResourceCopies(moduleKey, resource);
+      db.prepare('DELETE FROM training_module_resources WHERE id=? AND module_key=?').run(id, moduleKey);
+    });
+    tx();
+    if (resource.file_path) deleteTrainingFileIfUnused(resource.file_path);
+  }
+  res.redirect('/staff/training?resource_removed=1');
+});
+
+// Publish/refresh module resources for a class. Existing copies for this module/class
+// are replaced so repeated publishing cannot create duplicates or leave stale resources.
 app.post('/staff/training/modules/:moduleKey/publish', requireStaff, (req,res)=>{
   const moduleKey = req.params.moduleKey;
   const classId = parseInt(req.body.class_id, 10);
@@ -1415,13 +1481,15 @@ app.post('/staff/training/modules/:moduleKey/publish', requireStaff, (req,res)=>
   `).all(classId);
 
   const resources = db.prepare('SELECT * FROM training_module_resources WHERE module_key = ?').all(moduleKey);
-
+  const del = db.prepare('DELETE FROM training_resources WHERE user_id=? AND module_key=?');
   const ins = db.prepare(`
     INSERT INTO training_resources (user_id, title, url, file_path, area, module_key)
     VALUES (?,?,?,?,?,?)
   `);
+
   const tx = db.transaction((rows, rescs) => {
     rows.forEach(st => {
+      del.run(st.student_id, moduleKey);
       rescs.forEach(r => {
         ins.run(st.student_id, r.title, r.url||'', r.file_path||'', r.area||'', moduleKey);
       });
@@ -1429,18 +1497,39 @@ app.post('/staff/training/modules/:moduleKey/publish', requireStaff, (req,res)=>
   });
   tx(students, resources);
 
-  res.redirect('/staff/training');
+  res.redirect('/staff/training?published=1');
 });
 
-// Delete a module entirely (and all related resources, including student copies)
+// Remove all published resources for this module from the selected class.
+app.post('/staff/training/modules/:moduleKey/unpublish', requireStaff, (req,res)=>{
+  const moduleKey = req.params.moduleKey;
+  const classId = parseInt(req.body.class_id, 10);
+  if (!classId) return res.redirect('/staff/training');
+
+  const students = db.prepare(`
+    SELECT u.id as student_id
+    FROM users u
+    JOIN student_classes sc ON sc.student_id = u.id
+    WHERE sc.class_id = ?
+  `).all(classId);
+  const del = db.prepare('DELETE FROM training_resources WHERE user_id=? AND module_key=?');
+  const tx = db.transaction((rows) => rows.forEach(st => del.run(st.student_id, moduleKey)));
+  tx(students);
+
+  res.redirect('/staff/training?class_removed=1');
+});
+
+// Delete a module entirely, its learner copies and its no-longer-used uploaded files.
 app.post('/staff/training/modules/:moduleKey/delete', requireStaff, (req,res)=>{
   const moduleKey = req.params.moduleKey;
+  const files = db.prepare("SELECT DISTINCT file_path FROM training_module_resources WHERE module_key=? AND file_path<>''").all(moduleKey);
   const tx = db.transaction((key)=>{
     db.prepare('DELETE FROM training_resources WHERE module_key=?').run(key);
     db.prepare('DELETE FROM training_module_resources WHERE module_key=?').run(key);
     db.prepare('DELETE FROM training_catalog WHERE key=?').run(key);
   });
   tx(moduleKey);
+  files.forEach(r => deleteTrainingFileIfUnused(r.file_path));
   res.redirect('/staff/training');
 });
 
@@ -1448,11 +1537,14 @@ app.post('/staff/training/modules/:moduleKey/delete', requireStaff, (req,res)=>{
 app.post('/staff/admin/modules/:key/resource', requireStaff, upload.single('file'), (req,res)=>{
   if (!req.session.staff.is_admin) return res.redirect('/staff/admin');
   const module_key = req.params.key;
-  const { title, url, area } = req.body;
+  const rawTitle = String(req.body?.title || '').trim();
+  const cleanUrl = String(req.body?.url || '').trim();
+  const area = String(req.body?.area || '').trim();
   const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
-  if (!title || (!url && !file_path)) return res.redirect('/staff/admin');
+  if (!cleanUrl && !file_path) return res.redirect('/staff/admin');
+  const title = rawTitle || (req.file?.originalname ? req.file.originalname : cleanUrl);
   db.prepare('INSERT INTO training_module_resources (module_key, title, url, file_path, area) VALUES (?,?,?,?,?)')
-    .run(module_key, title, url||'', file_path, area||'');
+    .run(module_key, title, cleanUrl, file_path, area);
   res.redirect('/staff/admin');
 });
 app.post('/staff/admin/modules/:key/resource/:rid/delete', requireStaff, (req,res)=>{

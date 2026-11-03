@@ -25,6 +25,15 @@
       transition: background .2s, border-color .2s; white-space:nowrap; text-decoration:none;
     }
     #staff-training .btn:hover { background:#5b21b6; border-color:#5b21b6; }
+    #staff-training .btn.outline { background:#fff; color:#6d28d9; border-color:#c4b5fd; }
+    #staff-training .btn.outline:hover { background:#f5f3ff; border-color:#a78bfa; }
+    #staff-training .btn.danger-soft { background:#fff; color:#991b1b; border-color:#fecaca; }
+    #staff-training .btn.danger-soft:hover { background:#fff1f2; border-color:#fda4af; }
+    #staff-training .btn.small { padding:5px 8px; font-size:.8rem; }
+    #staff-training .resource-row { margin:.45rem 0; padding:.45rem 0; border-bottom:1px solid #f3f4f6; }
+    #staff-training .resource-row:last-child { border-bottom:0; }
+    #staff-training .resource-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
+    #staff-training .resource-actions form { margin:0; }
     /* Icon buttons */
     #staff-training .btn-icon { background:none; border:none; cursor:pointer; padding:6px; margin:0; }
     #staff-training .btn-icon svg { width:18px; height:18px; fill:#374151; }
@@ -48,6 +57,15 @@
     <% } %>
     <% if (typeof resource_error !== 'undefined' && resource_error) { %>
       <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;font-weight:600;">Choose a file or enter a URL before adding the resource.</div>
+    <% } %>
+    <% if (typeof resource_removed !== 'undefined' && resource_removed) { %>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:10px;font-weight:600;">Resource removed from learner profiles.</div>
+    <% } %>
+    <% if (typeof class_removed !== 'undefined' && class_removed) { %>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:10px;font-weight:600;">This module's resources were removed from the selected class.</div>
+    <% } %>
+    <% if (typeof published !== 'undefined' && published) { %>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:10px;font-weight:600;">Resources published to the selected class. Existing copies were refreshed.</div>
     <% } %>
 
     <!-- Add module -->
@@ -127,37 +145,44 @@
               <% } else { %>
                 <ul style="margin:0; padding-left:16px;">
                   <% resList.forEach(function(r){ %>
-                    <li style="margin:.25rem 0">
-                      <span><%= r.title %></span>
-                      <% if (r.area) { %> <span class="muted"> — <%= r.area %></span> <% } %>
-                      <% if (r.url) { %> — <a href="<%= r.url %>" target="_blank">link</a> <% } %>
-                      <% if (r.file_path) { %> — <a href="<%= r.file_path %>" target="_blank">file</a> <% } %>
-                      <form method="post" action="/staff/training/modules/<%= m.key %>/resource/<%= r.id %>/delete" style="display:inline"
-                            onsubmit="return confirm('Delete this resource?')">
-                        <button class="btn-icon" type="submit" title="Delete resource" aria-label="Delete resource">
-                          <!-- Trash icon -->
-                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512" aria-hidden="true" focusable="false">
-                            <path d="M135.2 17.7C140.7 7.1 151.9 0 164.3 0H283.7c12.4 0 23.6 7.1 29.1 17.7L328 32h88c13.3 0 24 10.7 24 24s-10.7 24-24 24h-16l-21.2 339.4c-1.6 25.9-23.1 46.6-49 46.6H118.2c-25.9 0-47.4-20.7-49-46.6L48 80H32C18.7 80 8 69.3 8 56S18.7 32 32 32h88l15.2-14.3zM112 128l20.8 320h182.4L336 128H112z"/>
-                          </svg>
-                        </button>
-                      </form>
+                    <li class="resource-row">
+                      <div>
+                        <strong><%= r.title %></strong>
+                        <% if (r.area) { %> <span class="muted"> — <%= r.area %></span> <% } %>
+                        <% if (r.url) { %> — <a href="<%= r.url %>" target="_blank" rel="noopener">link</a> <% } %>
+                        <% if (r.file_path) { %> — <a href="<%= r.file_path %>" target="_blank" rel="noopener">file</a> <% } %>
+                      </div>
+                      <div class="resource-actions">
+                        <form method="post" action="/staff/training/modules/<%= m.key %>/resource/<%= r.id %>/unpublish"
+                              onsubmit="return confirm('Remove this resource from learner profiles? The master copy will stay in Staff Training.')">
+                          <button class="btn outline small" type="submit">Remove from learners</button>
+                        </form>
+                        <form method="post" action="/staff/training/modules/<%= m.key %>/resource/<%= r.id %>/delete"
+                              onsubmit="return confirm('Delete this resource from Staff Training and remove all published learner copies?')">
+                          <button class="btn danger-soft small" type="submit">Delete resource</button>
+                        </form>
+                      </div>
                     </li>
                   <% }) %>
                 </ul>
               <% } %>
 
-              <!-- Publish to class -->
+              <!-- Publish / remove from class -->
               <form method="post" action="/staff/training/modules/<%= m.key %>/publish" class="vspace">
-                <label>Publish these resources to class</label>
+                <label>Manage resources for class</label>
                 <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
                   <select name="class_id" required>
                     <% (classes || []).forEach(function(c){ %>
                       <option value="<%= c.id %>"><%= c.name %></option>
                     <% }) %>
                   </select>
-                  <button class="btn" type="submit" onclick="return confirm('Copy all resources to all students in selected class?')">Publish</button>
+                  <button class="btn" type="submit"
+                          onclick="return confirm('Publish/refresh all current resources for this module to the selected class?')">Publish / refresh</button>
+                  <button class="btn danger-soft" type="submit"
+                          formaction="/staff/training/modules/<%= m.key %>/unpublish"
+                          onclick="return confirm('Remove ALL resources from this module from the selected class?')">Remove from class</button>
                 </div>
-                <p class="muted">Publishes each resource to every student in the selected class, keeping the chosen Area.</p>
+                <p class="muted">Publish/refresh replaces older copies for this module, so learners do not get duplicates or outdated resources.</p>
               </form>
             </div>
           <% }) %>
