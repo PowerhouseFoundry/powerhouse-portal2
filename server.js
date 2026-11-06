@@ -414,9 +414,17 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
   storage,
-  // Large enough for normal PowerPoint/video training resources while still
-  // preventing accidental huge uploads from exhausting the service disk.
+  // Used by the rest of the portal (CVs, learner resources, etc.).
   limits: { fileSize: 150 * 1024 * 1024 }
+});
+
+// Staff Training uses a separate upload handler. Keeping the file in memory for
+// this one route lets us explicitly write it to the persistent folder, verify
+// the write succeeded, and return a useful error to the page instead of a
+// silent redirect. 250 MB comfortably covers normal PowerPoint/PDF resources.
+const trainingUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 250 * 1024 * 1024 }
 });
 
 // Job application drafts are kept for 30 days from the date they were started.
@@ -1411,6 +1419,50 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     if (!moduleResources[r.module_key]) moduleResources[r.module_key] = [];
     moduleResources[r.module_key].push(r);
   });
+
+  // Build a live publication map from the learner copies already in the DB.
+  // This works for old resources too, so staff can see exactly which classes
+  // currently have each resource without needing a separate publication table.
+  const classTotals = new Map(
+    db.prepare(`
+      SELECT c.id AS class_id, c.name AS class_name, COUNT(DISTINCT sc.student_id) AS total
+      FROM classes c
+      LEFT JOIN student_classes sc ON sc.class_id = c.id
+      GROUP BY c.id, c.name
+    `).all().map(r => [r.class_id, r])
+  );
+  const learnerResourceRows = db.prepare(`
+    SELECT tr.user_id, tr.title, tr.url, tr.file_path, tr.area, tr.module_key,
+           sc.class_id
+    FROM training_resources tr
+    JOIN student_classes sc ON sc.student_id = tr.user_id
+  `).all();
+  const resourcePublications = {};
+  modResRows.forEach(resource => {
+    const byClass = new Map();
+    learnerResourceRows.forEach(copy => {
+      if (copy.module_key !== resource.module_key) return;
+      const matches = resource.file_path
+        ? copy.file_path === resource.file_path
+        : resource.url
+          ? copy.url === resource.url
+          : (copy.title === resource.title && (copy.area || '') === (resource.area || ''));
+      if (!matches) return;
+      if (!byClass.has(copy.class_id)) byClass.set(copy.class_id, new Set());
+      byClass.get(copy.class_id).add(copy.user_id);
+    });
+    resourcePublications[resource.id] = [...byClass.entries()].map(([classId, users]) => {
+      const info = classTotals.get(classId) || { class_name:'Class', total:0 };
+      return {
+        classId,
+        className: info.class_name,
+        publishedCount: users.size,
+        totalCount: Number(info.total || 0),
+        complete: Number(info.total || 0) > 0 && users.size >= Number(info.total || 0)
+      };
+    }).sort((a,b) => a.className.localeCompare(b.className));
+  });
+
   let storageReady = true;
   let storageMessage = 'Upload storage is ready.';
   try {
@@ -1426,6 +1478,7 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     classes,
     modules,
     moduleResources,
+    resourcePublications,
     active: 'staff-training',
     staff: req.session.staff,
     resource_added: req.query.resource_added === '1',
@@ -1449,31 +1502,55 @@ app.post('/staff/training/modules', requireStaff, (req,res)=>{
   res.redirect('/staff/training');
 });
 
-// Add a resource to a module. Run Multer manually so upload failures are shown
-// on the Staff Training page instead of looking like the button did nothing.
+// Add a resource to a module. This route writes Training files itself so the
+// app can verify that the persistent copy really exists before saving the DB row.
 app.post('/staff/training/modules/:moduleKey/resource', requireStaff, (req,res)=>{
-  upload.single('file')(req, res, (uploadErr) => {
+  const wantsJson = req.get('X-Requested-With') === 'XMLHttpRequest';
+  const fail = (status, message) => {
+    console.error('Training resource upload failed:', message);
+    if (wantsJson) return res.status(status).json({ ok:false, error:message });
+    return res.redirect('/staff/training?resource_error=' + encodeURIComponent(message));
+  };
+  const succeed = (message) => {
+    if (wantsJson) return res.json({ ok:true, message });
+    return res.redirect('/staff/training?resource_added=1');
+  };
+
+  trainingUpload.single('file')(req, res, (uploadErr) => {
     if (uploadErr) {
-      console.error('Training resource upload failed:', uploadErr);
       const message = uploadErr.code === 'LIMIT_FILE_SIZE'
-        ? 'The selected file is too large. The maximum size is 150 MB.'
-        : `The file could not be uploaded: ${uploadErr.message || 'unknown upload error'}`;
-      return res.redirect('/staff/training?resource_error=' + encodeURIComponent(message));
+        ? 'The selected file is too large. The maximum Training upload size is 250 MB.'
+        : `The file could not be read: ${uploadErr.message || 'unknown upload error'}`;
+      return fail(400, message);
     }
 
+    let savedFullPath = '';
     try {
-      const moduleKey = req.params.moduleKey;
+      const moduleKey = String(req.params.moduleKey || '').trim();
       const rawTitle = String((req.body && req.body.title) || '').trim();
       const cleanUrl = String((req.body && req.body.url) || '').trim();
       const area = String((req.body && req.body.area) || '').trim();
-      const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
 
-      if (!cleanUrl && !file_path) {
-        return res.redirect('/staff/training?resource_error=' + encodeURIComponent('Choose a file or enter a URL before adding the resource.'));
-      }
+      if (!moduleKey) return fail(400, 'The training module could not be identified.');
+      if (!cleanUrl && !req.file) return fail(400, 'Choose a file or enter a URL before adding the resource.');
 
-      if (req.file && !fs.existsSync(req.file.path)) {
-        throw new Error('The upload was received but the file was not written to storage.');
+      let file_path = '';
+      if (req.file) {
+        fs.mkdirSync(uploadDir, { recursive:true });
+        fs.accessSync(uploadDir, fs.constants.W_OK);
+
+        const safeOriginal = String(req.file.originalname || 'training-file')
+          .replace(/[^\w.\-]+/g, '_')
+          .replace(/^_+|_+$/g, '') || 'training-file';
+        const storedName = `${Date.now()}_${Math.random().toString(36).slice(2,8)}_${safeOriginal}`;
+        savedFullPath = path.join(uploadDir, storedName);
+
+        fs.writeFileSync(savedFullPath, req.file.buffer);
+        const stat = fs.statSync(savedFullPath);
+        if (!stat.isFile() || stat.size !== req.file.buffer.length) {
+          throw new Error('The file write could not be verified.');
+        }
+        file_path = '/uploads/' + storedName;
       }
 
       const title = rawTitle || (req.file && req.file.originalname ? req.file.originalname : cleanUrl);
@@ -1482,22 +1559,19 @@ app.post('/staff/training/modules/:moduleKey/resource', requireStaff, (req,res)=
         VALUES (?, ?, ?, ?, ?, datetime('now'))
       `).run(moduleKey, title, cleanUrl, file_path, area);
 
-      console.log('Training resource added:', {
+      console.log('Training resource added successfully:', {
         moduleKey,
         title,
         file_path,
-        uploadDir,
-        fileExists: req.file ? fs.existsSync(req.file.path) : null
+        bytes: req.file ? req.file.size : 0,
+        uploadDir
       });
-
-      return res.redirect('/staff/training?resource_added=1');
+      return succeed('Resource added successfully.');
     } catch (err) {
-      console.error('Saving training resource failed:', err);
-      if (req.file && req.file.path) {
-        try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch {}
+      if (savedFullPath) {
+        try { if (fs.existsSync(savedFullPath)) fs.unlinkSync(savedFullPath); } catch {}
       }
-      const message = `The resource could not be saved: ${err.message || 'unknown server error'}`;
-      return res.redirect('/staff/training?resource_error=' + encodeURIComponent(message));
+      return fail(500, `The resource could not be saved: ${err.message || 'unknown server error'}`);
     }
   });
 });

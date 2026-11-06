@@ -34,6 +34,15 @@
     #staff-training .resource-row:last-child { border-bottom:0; }
     #staff-training .resource-actions { display:flex; gap:6px; flex-wrap:wrap; margin-top:6px; }
     #staff-training .resource-actions form { margin:0; }
+    #staff-training .publish-line { margin-top:7px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    #staff-training .publish-label { font-size:.8rem; font-weight:700; color:#6b7280; }
+    #staff-training .class-chip { display:inline-flex; align-items:center; gap:4px; border-radius:999px; padding:4px 7px; font-size:.76rem; font-weight:750; background:#ecfdf5; color:#166534; border:1px solid #bbf7d0; }
+    #staff-training .class-chip.partial { background:#fff7ed; color:#9a3412; border-color:#fed7aa; }
+    #staff-training .not-published { font-size:.8rem; color:#9ca3af; }
+    #staff-training .upload-status { margin-top:8px; min-height:20px; font-size:.86rem; font-weight:650; }
+    #staff-training .upload-status.info { color:#5b21b6; }
+    #staff-training .upload-status.ok { color:#166534; }
+    #staff-training .upload-status.error { color:#991b1b; }
     /* Icon buttons */
     #staff-training .btn-icon { background:none; border:none; cursor:pointer; padding:6px; margin:0; }
     #staff-training .btn-icon svg { width:18px; height:18px; fill:#374151; }
@@ -119,7 +128,7 @@
               <h3 style="margin-top:0;"><%= m.name %> <span class="muted">(<%= m.key %>)</span></h3>
 
               <!-- Add resource -->
-              <form method="post" action="/staff/training/modules/<%= m.key %>/resource" enctype="multipart/form-data">
+              <form class="resource-upload-form" method="post" action="/staff/training/modules/<%= m.key %>/resource" enctype="multipart/form-data">
                 <label>Title <span class="muted" style="font-weight:400">(optional)</span></label>
                 <input type="text" name="title" placeholder="Leave blank to use the file name">
 
@@ -139,7 +148,8 @@
                 <div class="muted" style="font-size:.85rem; margin-top:5px;">Choose a file, then press <strong>Add resource</strong>. If Title is blank, the file name will be used.</div>
 
                 <div class="vspace">
-                  <button class="btn" type="submit">Add resource</button>
+                  <button class="btn upload-btn" type="submit">Add resource</button>
+                  <div class="upload-status" role="status" aria-live="polite"></div>
                 </div>
               </form>
 
@@ -156,6 +166,19 @@
                         <% if (r.area) { %> <span class="muted"> — <%= r.area %></span> <% } %>
                         <% if (r.url) { %> — <a href="<%= r.url %>" target="_blank" rel="noopener">link</a> <% } %>
                         <% if (r.file_path) { %> — <a href="<%= r.file_path %>" target="_blank" rel="noopener">file</a> <% } %>
+                      </div>
+                      <% const pubList = (resourcePublications && resourcePublications[r.id]) ? resourcePublications[r.id] : []; %>
+                      <div class="publish-line">
+                        <span class="publish-label">Published to:</span>
+                        <% if (!pubList.length) { %>
+                          <span class="not-published">No classes</span>
+                        <% } else { %>
+                          <% pubList.forEach(function(pub){ %>
+                            <span class="class-chip <%= pub.complete ? '' : 'partial' %>" title="<%= pub.publishedCount %> of <%= pub.totalCount %> learners have this resource">
+                              <%= pub.className %> <%= pub.publishedCount %>/<%= pub.totalCount %>
+                            </span>
+                          <% }) %>
+                        <% } %>
                       </div>
                       <div class="resource-actions">
                         <form method="post" action="/staff/training/modules/<%= m.key %>/resource/<%= r.id %>/unpublish"
@@ -196,5 +219,60 @@
     </div>
   </div>
 </div>
+
+<script>
+(function(){
+  document.querySelectorAll('.resource-upload-form').forEach(function(form){
+    form.addEventListener('submit', async function(e){
+      e.preventDefault();
+
+      const status = form.querySelector('.upload-status');
+      const button = form.querySelector('.upload-btn');
+      const fileInput = form.querySelector('input[type="file"][name="file"]');
+      const urlInput = form.querySelector('input[name="url"]');
+      const hasFile = fileInput && fileInput.files && fileInput.files.length > 0;
+      const hasUrl = urlInput && String(urlInput.value || '').trim();
+
+      if (!hasFile && !hasUrl) {
+        status.className = 'upload-status error';
+        status.textContent = 'Choose a file or enter a URL first.';
+        return;
+      }
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = hasFile ? 'Uploading…' : 'Adding…';
+      status.className = 'upload-status info';
+      status.textContent = hasFile ? 'Uploading the file. Keep this page open.' : 'Adding the resource…';
+
+      try {
+        const response = await fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+
+        let data = null;
+        try { data = await response.json(); } catch(e) {}
+
+        if (!response.ok || !data || !data.ok) {
+          const message = data && data.error ? data.error : ('Upload failed. Server returned ' + response.status + '.');
+          throw new Error(message);
+        }
+
+        status.className = 'upload-status ok';
+        status.textContent = data.message || 'Resource added successfully.';
+        button.textContent = 'Added';
+        window.setTimeout(function(){ window.location.reload(); }, 500);
+      } catch (err) {
+        status.className = 'upload-status error';
+        status.textContent = err && err.message ? err.message : 'The resource could not be uploaded.';
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+  });
+})();
+</script>
 
 <%- include('../partials/footer.js') %>
