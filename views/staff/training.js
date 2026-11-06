@@ -56,7 +56,12 @@
       <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bbf7d0;background:#f0fdf4;color:#166534;border-radius:10px;font-weight:600;">Resource added successfully.</div>
     <% } %>
     <% if (typeof resource_error !== 'undefined' && resource_error) { %>
-      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;font-weight:600;">Choose a file or enter a URL before adding the resource.</div>
+      <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #fecaca;background:#fef2f2;color:#991b1b;border-radius:10px;font-weight:600;"><%= resource_error %></div>
+    <% } %>
+    <% if (typeof storageReady !== 'undefined') { %>
+      <div style="margin-bottom:12px;padding:9px 11px;border:1px solid <%= storageReady ? '#bbf7d0' : '#fecaca' %>;background:<%= storageReady ? '#f0fdf4' : '#fef2f2' %>;color:<%= storageReady ? '#166534' : '#991b1b' %>;border-radius:10px;font-size:.9rem;">
+        <strong>File storage:</strong> <%= storageMessage %>
+      </div>
     <% } %>
     <% if (typeof resource_removed !== 'undefined' && resource_removed) { %>
       <div style="margin-bottom:12px;padding:10px 12px;border:1px solid #bfdbfe;background:#eff6ff;color:#1e40af;border-radius:10px;font-weight:600;">Resource removed from learner profiles.</div>

@@ -398,10 +398,26 @@ app.use('/uploads', express.static(uploadDir));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadDir),
+  destination: (req, file, cb) => {
+    try {
+      // Re-check the folder for every upload. This gives us a useful error instead
+      // of a silent failure if Render's persistent disk is unavailable or unwritable.
+      fs.mkdirSync(uploadDir, { recursive: true });
+      fs.accessSync(uploadDir, fs.constants.W_OK);
+      cb(null, uploadDir);
+    } catch (err) {
+      console.error('Upload storage is not writable:', uploadDir, err);
+      cb(err);
+    }
+  },
   filename: (req, file, cb) => cb(null, Date.now() + '_' + file.originalname.replace(/[^\w.\-]+/g,'_'))
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  // Large enough for normal PowerPoint/video training resources while still
+  // preventing accidental huge uploads from exhausting the service disk.
+  limits: { fileSize: 150 * 1024 * 1024 }
+});
 
 // Job application drafts are kept for 30 days from the date they were started.
 // This allows learners to continue next session without leaving old drafts forever.
@@ -1395,6 +1411,17 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     if (!moduleResources[r.module_key]) moduleResources[r.module_key] = [];
     moduleResources[r.module_key].push(r);
   });
+  let storageReady = true;
+  let storageMessage = 'Upload storage is ready.';
+  try {
+    fs.mkdirSync(uploadDir, { recursive: true });
+    fs.accessSync(uploadDir, fs.constants.W_OK);
+  } catch (err) {
+    storageReady = false;
+    storageMessage = 'Upload storage is not writable. Check the Render persistent disk / DATA_DIR setting.';
+    console.error('Training storage check failed:', uploadDir, err);
+  }
+
   res.render('staff/training', {
     classes,
     modules,
@@ -1402,10 +1429,12 @@ app.get('/staff/training', requireStaff, (req,res)=>{
     active: 'staff-training',
     staff: req.session.staff,
     resource_added: req.query.resource_added === '1',
-    resource_error: req.query.resource_error === '1',
+    resource_error: typeof req.query.resource_error === 'string' ? req.query.resource_error : '',
     resource_removed: req.query.resource_removed === '1',
     class_removed: req.query.class_removed === '1',
-    published: req.query.published === '1'
+    published: req.query.published === '1',
+    storageReady,
+    storageMessage
   });
 });
 
@@ -1420,24 +1449,57 @@ app.post('/staff/training/modules', requireStaff, (req,res)=>{
   res.redirect('/staff/training');
 });
 
-// Add resource to a module. Title is optional; use the uploaded file name when blank.
-app.post('/staff/training/modules/:moduleKey/resource', requireStaff, upload.single('file'), (req,res)=>{
-  const moduleKey = req.params.moduleKey;
-  const rawTitle = String(req.body?.title || '').trim();
-  const cleanUrl = String(req.body?.url || '').trim();
-  const area = String(req.body?.area || '').trim();
-  const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
+// Add a resource to a module. Run Multer manually so upload failures are shown
+// on the Staff Training page instead of looking like the button did nothing.
+app.post('/staff/training/modules/:moduleKey/resource', requireStaff, (req,res)=>{
+  upload.single('file')(req, res, (uploadErr) => {
+    if (uploadErr) {
+      console.error('Training resource upload failed:', uploadErr);
+      const message = uploadErr.code === 'LIMIT_FILE_SIZE'
+        ? 'The selected file is too large. The maximum size is 150 MB.'
+        : `The file could not be uploaded: ${uploadErr.message || 'unknown upload error'}`;
+      return res.redirect('/staff/training?resource_error=' + encodeURIComponent(message));
+    }
 
-  if (!cleanUrl && !file_path) {
-    return res.redirect('/staff/training?resource_error=1');
-  }
+    try {
+      const moduleKey = req.params.moduleKey;
+      const rawTitle = String((req.body && req.body.title) || '').trim();
+      const cleanUrl = String((req.body && req.body.url) || '').trim();
+      const area = String((req.body && req.body.area) || '').trim();
+      const file_path = req.file ? '/uploads/' + path.basename(req.file.path) : '';
 
-  const title = rawTitle || (req.file?.originalname ? req.file.originalname : cleanUrl);
-  db.prepare(`
-    INSERT INTO training_module_resources (module_key, title, url, file_path, area, created_at)
-    VALUES (?, ?, ?, ?, ?, datetime('now'))
-  `).run(moduleKey, title, cleanUrl, file_path, area);
-  res.redirect('/staff/training?resource_added=1');
+      if (!cleanUrl && !file_path) {
+        return res.redirect('/staff/training?resource_error=' + encodeURIComponent('Choose a file or enter a URL before adding the resource.'));
+      }
+
+      if (req.file && !fs.existsSync(req.file.path)) {
+        throw new Error('The upload was received but the file was not written to storage.');
+      }
+
+      const title = rawTitle || (req.file && req.file.originalname ? req.file.originalname : cleanUrl);
+      db.prepare(`
+        INSERT INTO training_module_resources (module_key, title, url, file_path, area, created_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now'))
+      `).run(moduleKey, title, cleanUrl, file_path, area);
+
+      console.log('Training resource added:', {
+        moduleKey,
+        title,
+        file_path,
+        uploadDir,
+        fileExists: req.file ? fs.existsSync(req.file.path) : null
+      });
+
+      return res.redirect('/staff/training?resource_added=1');
+    } catch (err) {
+      console.error('Saving training resource failed:', err);
+      if (req.file && req.file.path) {
+        try { if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path); } catch {}
+      }
+      const message = `The resource could not be saved: ${err.message || 'unknown server error'}`;
+      return res.redirect('/staff/training?resource_error=' + encodeURIComponent(message));
+    }
+  });
 });
 
 // Remove one resource from learners but keep the master resource in Staff Training.
